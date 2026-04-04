@@ -1,17 +1,80 @@
-# help_signal
+# 🚨 HelpSignal
 
-A new Flutter project.
+**HelpSignal** is an offline-first disaster emergency communication app that enables users to send and receive alerts without relying on internet or cellular networks.
 
-## Getting Started
+It uses **Bluetooth Low Energy (BLE)** to create a decentralized mesh network, allowing nearby devices to relay emergency signals across multiple hops.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 🧠 Problem
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+During disasters (earthquakes, floods, network outages), traditional communication systems fail:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- No internet
+- No cellular network
+- Victims cannot reach help
+
+HelpSignal solves this by enabling **device-to-device communication** without infrastructure.
+
+---
+
+## 🚀 Features
+
+### 🔴 Emergency Alerts
+
+- **SOS** – Critical distress signal
+- **Medical** – Health-related emergencies
+- **Rescue** – Assistance or search requests
+- **Hazard** – Environmental danger alerts
+
+---
+
+### 📡 Offline Mesh Communication
+
+- Uses **Bluetooth Low Energy (BLE)**
+- Peer-to-peer discovery
+- Multi-hop message relay (mesh network)
+- Works completely **offline**
+
+---
+
+### 🗺️ Live Map View
+
+- Displays nearby alerts and user location
+- Distance-based awareness (e.g., _200m away_)
+- Visual connection between users and alerts
+
+---
+
+### 📋 Alerts Feed
+
+- Real-time alert list
+- Shows:
+  - Type
+  - Distance
+  - Time
+- Quick actions:
+  - Respond
+  - Monitor
+  - View details
+
+---
+
+### 🎯 User Experience
+
+- Simple, stress-friendly UI
+- One-tap SOS trigger
+- Clear visual hierarchy
+- Designed for use under emergency conditions
+
+---
+
+## 🧱 Tech Stack
+
+- **Flutter** (UI Framework)
+- **Dart**
+- **Bluetooth Low Energy (BLE)** APIs
+- **Local Storage** (Hive / SQLite)
+- **OpenStreetMap** (offline maps)
+
+---
