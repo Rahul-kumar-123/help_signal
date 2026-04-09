@@ -23,12 +23,12 @@ const ColorScheme kcolorScheme = ColorScheme(
   errorContainer: Color(0xFFF9DEDC),
   onErrorContainer: Color(0xFF410E0B),
 
-  surface: Color(0xFFF4F6F8),
+  surface: Color.fromARGB(255, 247, 242, 242),
   onSurface: Color(0xFF0F172A),
 );
 
-const List<NavigationDestination> kNavigationDestinationList = [
-  NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-  NavigationDestination(icon: Icon(Icons.map), label: 'Map'),
-  NavigationDestination(icon: Icon(Icons.warning), label: 'Alerts'),
-];
+
+
+
+
+

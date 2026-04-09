@@ -35,12 +35,30 @@ class _MyAppState extends State<MyApp> {
       home: Theme(
         data: ThemeData(colorScheme: kcolorScheme),
         child: Scaffold(
-          appBar: AppBar(title: const Text('HelpSignal')),
-          body: Center(child: _widgetOptions.elementAt(_selectedIndex)),
+          appBar: AppBar(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'HelpSignal',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Icon(Icons.notifications, size: 28.0),
+              ],
+            ),
+          ),
+          body: _widgetOptions.elementAt(_selectedIndex),
           bottomNavigationBar: NavigationBar(
+            indicatorColor: Color.fromARGB(255, 255, 189, 194),
+            surfaceTintColor: const Color.fromARGB(77, 143, 143, 143),
             selectedIndex: _selectedIndex,
+            backgroundColor: const Color.fromARGB(255, 234, 234, 234),
             onDestinationSelected: _onItemTapped,
-            destinations: kNavigationDestinationList,
+            destinations: [
+              NavigationDestination(icon: Icon(Icons.home), label: 'Home', selectedIcon: Icon(Icons.home)),
+              NavigationDestination(icon: Icon(Icons.map), label: 'Map', selectedIcon: Icon(Icons.map)),
+              NavigationDestination(icon: Icon(Icons.warning), label: 'Alerts', selectedIcon: Icon(Icons.warning)),
+            ],
           ),
         ),
       ),
