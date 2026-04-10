@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:help_signal/managers/alert_manager.dart';
 import 'package:help_signal/utilities/alert_data.dart';
 
 class MapScreen extends StatefulWidget {
   final LatLng? initialLocation;
+  final AlertManager alertManager;
 
-  const MapScreen({super.key, this.initialLocation});
+  const MapScreen({super.key, this.initialLocation, required this.alertManager});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -57,7 +59,7 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
 
-                  ...alerts
+                  ...widget.alertManager.alerts
                       .where(
                         (alert) =>
                             alert.type == activeFilter ||

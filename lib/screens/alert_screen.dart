@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:help_signal/managers/alert_manager.dart';
 import 'package:help_signal/utilities/alert_data.dart';
 import 'package:latlong2/latlong.dart';
 
 class AlertsScreen extends StatefulWidget {
+  final AlertManager alertManager;
   final void Function(LatLng?) onOpenMap;
 
-  const AlertsScreen({super.key, required this.onOpenMap});
+  const AlertsScreen({
+    super.key,
+    required this.alertManager,
+    required this.onOpenMap,
+  });
 
   @override
   State<AlertsScreen> createState() => _AlertsScreenState();
@@ -16,6 +22,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final filteredAlerts = _filteredAlerts();
+
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -24,12 +32,30 @@ class _AlertsScreenState extends State<AlertsScreen> {
           children: [
             _header(),
             _filters(),
-            SizedBox(height: 16),
-            ...alerts.map((alert) => _alertCard(alert)),
+            const SizedBox(height: 16),
+            ...filteredAlerts.map((alert) => _alertCard(alert)),
           ],
         ),
       ),
     );
+  }
+
+  List<AlertModel> _filteredAlerts() {
+    if (activeFilter == 'All') {
+      return widget.alertManager.alerts;
+    }
+    final filterType = {
+      'SOS': AlertType.sos,
+      'Medical': AlertType.medical,
+      'Rescue': AlertType.rescue,
+      'Hazard': AlertType.hazard,
+    }[activeFilter];
+
+    if (filterType == null) {
+      return widget.alertManager.alerts;
+    }
+
+    return widget.alertManager.alertsByType(filterType);
   }
 
   Widget _header() {

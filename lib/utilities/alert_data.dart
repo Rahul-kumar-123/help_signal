@@ -11,6 +11,7 @@ const Map<AlertType, IconData> alertIcons = {
 };
 
 class AlertModel {
+  final String id;
   final AlertType type;
   final String title;
   final String? description;
@@ -20,6 +21,7 @@ class AlertModel {
   final Color color;
 
   const AlertModel({
+    required this.id,
     required this.type,
     required this.title,
     this.description,
@@ -28,10 +30,55 @@ class AlertModel {
     this.location,
     required this.color,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'type': type.toString().split('.').last,
+      'title': title,
+      'description': description,
+      'distance': distance,
+      'time': time,
+      'location': location == null
+          ? null
+          : {'latitude': location!.latitude, 'longitude': location!.longitude},
+      'color': color.toARGB32(),
+    };
+  }
+
+  factory AlertModel.fromMap(Map<String, dynamic> map) {
+    LatLng? location;
+    if (map['location'] != null) {
+      final locationMap = map['location'] as Map<String, dynamic>;
+      location = LatLng(
+        locationMap['latitude'] as double,
+        locationMap['longitude'] as double,
+      );
+    }
+
+    return AlertModel(
+      id: map['id'] as String,
+      type: _typeFromString(map['type'] as String),
+      title: map['title'] as String,
+      description: map['description'] as String?,
+      distance: map['distance'] as String,
+      time: map['time'] as String,
+      location: location,
+      color: Color(map['color'] as int),
+    );
+  }
+
+  static AlertType _typeFromString(String raw) {
+    return AlertType.values.firstWhere(
+      (value) => value.toString().split('.').last == raw,
+      orElse: () => AlertType.all,
+    );
+  }
 }
 
 final List<AlertModel> alerts = [
   AlertModel(
+    id: 'sos-001',
     type: AlertType.sos,
     title: "Severe Vehicle Collision",
     description: null,
@@ -41,6 +88,7 @@ final List<AlertModel> alerts = [
     color: Colors.red,
   ),
   AlertModel(
+    id: 'medical-001',
     type: AlertType.medical,
     title: "Cardiac Emergency",
     description: "Immediate AED assistance needed at Central Park South Gate. Critical oxygen levels.",
@@ -50,6 +98,7 @@ final List<AlertModel> alerts = [
     color: Colors.blue,
   ),
   AlertModel(
+    id: 'hazard-001',
     type: AlertType.hazard,
     title: "Gas Leak Reported",
     description: "Structural hazard in zone 4B. Maintain 500m distance from site.",
@@ -59,6 +108,7 @@ final List<AlertModel> alerts = [
     color: Colors.orange,
   ),
   AlertModel(
+    id: 'rescue-001',
     type: AlertType.rescue,
     title: "Wilderness Search",
     description: "Missing hiker in Eastern Ridge area. Tracking gear volunteers requested.",
