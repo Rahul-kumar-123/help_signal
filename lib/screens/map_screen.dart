@@ -1,53 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-
-enum AlertType { all, medical, rescue, hazard, sos }
-
-const alertIcons = {
-  AlertType.medical: Icons.local_hospital,
-  AlertType.rescue: Icons.shield,
-  AlertType.hazard: Icons.warning,
-  AlertType.sos: Icons.sos_sharp,
-};
-
-final List<Map<String, dynamic>> alerts = [
-  {
-    "type": AlertType.sos,
-    "location": LatLng(51.505, -0.08),
-    "description": "Emergency SOS",
-    "color": Colors.red,
-    "title": "Emergency SOS",
-    "distance": "200m",
-  },
-  {
-    "type": AlertType.medical,
-    "location": LatLng(51.51, -0.1),
-    "description": "Accident",
-    "color": Colors.blue,
-    "title": "Medical Help",
-    "distance": "350m",
-  },
-  {
-    "type": AlertType.rescue,
-    "location": LatLng(51.49, -0.085),
-    "description": "Rescue Needed",
-    "color": Colors.orange,
-    "title": "Rescue Needed",
-    "distance": "500m",
-  },
-  {
-    "type": AlertType.hazard,
-    "location": LatLng(51.52, -0.12),
-    "description": "Fire Hazard",
-    "color": Colors.red,
-    "title": "Hazard Alert",
-    "distance": "1km",
-  },
-];
+import 'package:help_signal/utilities/alert_data.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final LatLng? initialLocation;
+
+  const MapScreen({super.key, this.initialLocation});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -61,13 +20,24 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? selectedAlertLocation;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialLocation != null) {
+      selectedAlertLocation = widget.initialLocation;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(widget.initialLocation!, 14);
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
           FlutterMap(
             options: MapOptions(
-              initialCenter: userLocation,
+              initialCenter: widget.initialLocation ?? userLocation,
               initialZoom: 13,
               initialRotation: mapRotation,
             ),
@@ -90,24 +60,24 @@ class _MapScreenState extends State<MapScreen> {
                   ...alerts
                       .where(
                         (alert) =>
-                            alert["type"] == activeFilter ||
+                            alert.type == activeFilter ||
                             activeFilter == AlertType.all,
                       )
                       .map((alert) {
                         return Marker(
-                          point: alert["location"],
+                          point: alert.location!,
                           width: 150,
                           height: 150,
                           child: GestureDetector(
                             onTap: () {
                               setState(() {
-                                selectedAlertLocation = alert["location"];
+                                selectedAlertLocation = alert.location;
                               });
                               _showAlertCard(context, alert);
                             },
                             child: Icon(
-                              alertIcons[alert["type"]],
-                              color: alert["color"],
+                              alertIcons[alert.type],
+                              color: alert.color,
                               size: 36,
                             ),
                           ),
@@ -235,7 +205,7 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void _showAlertCard(BuildContext context, Map<String, dynamic> alert) {
+  void _showAlertCard(BuildContext context, AlertModel alert) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -251,14 +221,14 @@ class _MapScreenState extends State<MapScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                alert["title"],
+                alert.title,
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 6),
-              Text("${alert["distance"]} away • 2 min ago"),
+              Text("${alert.distance} away • ${alert.time}"),
 
               const SizedBox(height: 16),
 
@@ -268,7 +238,7 @@ class _MapScreenState extends State<MapScreen> {
                     child: ElevatedButton(
                       onPressed: () {},
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: alert["color"],
+                        backgroundColor: alert.color,
                       ),
                       child: const Text("Respond"),
                     ),

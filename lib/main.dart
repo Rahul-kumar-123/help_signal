@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:help_signal/screens/alert_screen.dart';
 import 'screens/home_screen.dart';
 import 'utilities/constants.dart';
 import 'screens/map_screen.dart';
@@ -16,18 +18,26 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   int _selectedIndex = 0;
-
-  static final List<Widget> _widgetOptions = <Widget>[
-    HomeScreen(),
-    MapScreen(),
-    const Text('Alerts Page'),
-  ];
+  LatLng? _mapInitialLocation;
 
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
   }
+
+  void _openMap(LatLng? initialLocation) {
+    setState(() {
+      _mapInitialLocation = initialLocation;
+      _selectedIndex = 1;
+    });
+  }
+
+  List<Widget> get _widgetOptions => <Widget>[
+        HomeScreen(),
+        MapScreen(initialLocation: _mapInitialLocation),
+        AlertsScreen(onOpenMap: _openMap),
+      ];
 
   @override
   Widget build(BuildContext context) {
