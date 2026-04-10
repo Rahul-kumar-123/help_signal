@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'utilities/constants.dart';
+import 'screens/map_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -18,7 +19,7 @@ class _MyAppState extends State<MyApp> {
 
   static final List<Widget> _widgetOptions = <Widget>[
     HomeScreen(),
-    const Text('Map Page'),
+    MapScreen(),
     const Text('Alerts Page'),
   ];
 
@@ -36,6 +37,8 @@ class _MyAppState extends State<MyApp> {
         data: ThemeData(colorScheme: kcolorScheme),
         child: Scaffold(
           appBar: AppBar(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
             title: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
