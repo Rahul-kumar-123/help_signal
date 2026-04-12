@@ -1,51 +1,66 @@
 import 'package:flutter/material.dart';
-import 'package:help_signal/utilities/alert_data.dart';
 import 'package:latlong2/latlong.dart';
 
-class AlertsScreen extends StatefulWidget {
-  final void Function(LatLng?) onOpenMap;
+import '../core/alert_controller.dart';
+import '../utilities/alert_data.dart';
 
+class AlertsScreen extends StatefulWidget {
   const AlertsScreen({super.key, required this.onOpenMap});
+
+  final void Function(LatLng?) onOpenMap;
 
   @override
   State<AlertsScreen> createState() => _AlertsScreenState();
 }
 
 class _AlertsScreenState extends State<AlertsScreen> {
-  String activeFilter = "All";
+  AlertType activeFilter = AlertType.all;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _header(),
-            _filters(),
-            SizedBox(height: 16),
-            ...alerts.map((alert) => _alertCard(alert)),
-          ],
-        ),
-      ),
+    final controller = HelpSignalScope.of(context);
+
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final filteredAlerts = controller.alertsFor(activeFilter);
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(controller),
+              _filters(),
+              const SizedBox(height: 16),
+              if (filteredAlerts.isEmpty)
+                _emptyState()
+              else
+                ...filteredAlerts.map(
+                  (alert) => _alertCard(context, controller, alert),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _header() {
+  Widget _header(AlertController controller) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
-            "Alerts",
+        children: [
+          const Text(
+            'Alerts',
             style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
-            "Real-time emergency signals nearby.",
-            style: TextStyle(color: Color(0xFF5B403D)),
+            '${controller.alerts.length} stored alert${controller.alerts.length == 1 ? '' : 's'} '
+            'across the local device and mesh.',
+            style: const TextStyle(color: Color(0xFF5B403D)),
           ),
         ],
       ),
@@ -53,27 +68,27 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   Widget _filters() {
-    final filters = ["All", "SOS", "Medical", "Rescue", "Hazard"];
+    final filters = AlertType.values;
 
     return SizedBox(
       height: 40,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 10),
         scrollDirection: Axis.horizontal,
-        itemBuilder: (_, i) {
-          final label = filters[i];
-          final isActive = activeFilter == label;
+        itemBuilder: (_, index) {
+          final filter = filters[index];
+          final isActive = activeFilter == filter;
 
           return GestureDetector(
-            onTap: () => setState(() => activeFilter = label),
+            onTap: () => setState(() => activeFilter = filter),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
-                color: isActive ? Colors.red : Colors.white,
+                color: isActive ? filter.color : Colors.white,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                label,
+                filter.label,
                 style: TextStyle(
                   color: isActive ? Colors.white : Colors.black,
                   fontWeight: FontWeight.w500,
@@ -88,19 +103,36 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-  Widget _alertCard(AlertModel alert) {
-    final config = _alertConfig(alert.type);
+  Widget _emptyState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Text(
+        'No alerts match this filter yet. Send a new alert from Home or scan for nearby peers.',
+        style: TextStyle(height: 1.45, color: Color(0xFF5B403D)),
+      ),
+    );
+  }
 
+  Widget _alertCard(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16.0),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.07),
-            blurRadius: 12.0,
+            blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
@@ -111,66 +143,63 @@ class _AlertsScreenState extends State<AlertsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _tag(config),
+              _tag(alert.type),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    alert.distance,
+                    controller.distanceLabelFor(alert),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    alert.time,
+                    controller.timeLabelFor(alert),
                     style: const TextStyle(color: Color(0xFF5B403D)),
                   ),
                 ],
               ),
             ],
           ),
-
           const SizedBox(height: 10),
-
           Text(
             alert.title,
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-
           const SizedBox(height: 6),
-
-          if (alert.description != null && alert.description!.isNotEmpty) ...[
-            Text(
-              alert.description!,
-              style: const TextStyle(color: Color(0xFF5B403D)),
+          Text(
+            alert.description ?? 'No additional details',
+            style: TextStyle(
+              color: alert.description == null
+                  ? Colors.grey.shade500
+                  : const Color(0xFF5B403D),
             ),
-            const SizedBox(height: 14),
-          ] else ...[
-            Text(
-              "No additional details",
-              style: TextStyle(color: Colors.grey.shade500),
-            ),
-            const SizedBox(height: 14),
-          ],
-          _actionButton(alert),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Hop count: ${alert.hopCount} • Sender: ${alert.senderId}',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+          ),
+          const SizedBox(height: 14),
+          _actionButton(context, controller, alert),
         ],
       ),
     );
   }
 
-  Widget _tag(Map config) {
+  Widget _tag(AlertType type) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: config["bg"],
+        color: type.lightColor,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [
-          Icon(config["icon"], size: 14, color: config["color"]),
+          Icon(type.icon, size: 14, color: type.color),
           const SizedBox(width: 4),
           Text(
-            config["label"],
+            type.label.toUpperCase(),
             style: TextStyle(
-              color: config["color"],
+              color: type.color,
               fontWeight: FontWeight.w600,
               fontSize: 12,
             ),
@@ -180,59 +209,58 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-  Widget _actionButton(AlertModel alert) {
-    final config = _alertConfig(alert.type);
-
+  Widget _actionButton(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: () => _handleAlertAction(context, alert),
+        onPressed: () => _handleAlertAction(context, controller, alert),
         style: ElevatedButton.styleFrom(
-          backgroundColor: config["button"],
+          backgroundColor: alert.type.color,
+          foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        child: Text(
-          config["action"],
-          style: const TextStyle(color: Colors.white),
-        ),
+        child: Text(alert.type.actionLabel),
       ),
     );
   }
 
-  void _handleAlertAction(BuildContext context, AlertModel alert) {
+  void _handleAlertAction(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
     switch (alert.type) {
       case AlertType.sos:
       case AlertType.rescue:
-        if (alert.location != null) {
-          widget.onOpenMap(alert.location);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Routing to ${alert.title}'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-        _showAlertDetailsSheet(context, alert);
-        break;
+        widget.onOpenMap(alert.location);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Routing to ${alert.title}')));
+        return;
       case AlertType.medical:
-        _showAlertDetailsSheet(context, alert);
-        break;
+        _showAlertDetailsSheet(context, controller, alert);
+        return;
       case AlertType.hazard:
-        _showHazardInstructionsSheet(context, alert);
-        break;
+        _showHazardInstructionsSheet(context, controller, alert);
+        return;
       case AlertType.all:
-        throw UnsupportedError(
-          'AlertType.all should not be used for alert actions.',
-        );
+        return;
     }
   }
 
-  void _showAlertDetailsSheet(BuildContext context, AlertModel alert) {
-    showModalBottomSheet(
+  void _showAlertDetailsSheet(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) {
@@ -255,9 +283,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                alert.description?.isNotEmpty == true
-                    ? alert.description!
-                    : 'No additional details provided.',
+                alert.description ?? 'No additional details provided.',
                 style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
               ),
               const SizedBox(height: 12),
@@ -265,10 +291,13 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    alert.distance,
+                    controller.distanceLabelFor(alert),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  Text(alert.time, style: const TextStyle(color: Colors.grey)),
+                  Text(
+                    controller.timeLabelFor(alert),
+                    style: const TextStyle(color: Colors.grey),
+                  ),
                 ],
               ),
               const SizedBox(height: 18),
@@ -284,8 +313,12 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-  void _showHazardInstructionsSheet(BuildContext context, AlertModel alert) {
-    showModalBottomSheet(
+  void _showHazardInstructionsSheet(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) {
@@ -299,24 +332,24 @@ class _AlertsScreenState extends State<AlertsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'Hazard Safety Instructions',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               Text(
-                alert.description?.isNotEmpty == true
-                    ? alert.description!
-                    : 'No hazard details provided.',
+                alert.description ?? 'No hazard details provided.',
                 style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
               ),
               const SizedBox(height: 12),
               const Text(
-                "• Move to a safe distance immediately. • Avoid the affected area until emergency services arrive.• Follow local authority instructions and keep clear of hazards.",
+                'Move to a safe distance immediately. Avoid the affected area until help arrives. Follow any local authority instructions and keep others clear of the hazard zone.',
                 style: TextStyle(height: 1.5),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Reported ${controller.timeLabelFor(alert)} at ${controller.distanceLabelFor(alert)}.',
+                style: const TextStyle(color: Color(0xFF6B7280)),
               ),
               const SizedBox(height: 18),
               ElevatedButton(
@@ -329,50 +362,5 @@ class _AlertsScreenState extends State<AlertsScreen> {
         );
       },
     );
-  }
-
-  Map<String, dynamic> _alertConfig(AlertType type) {
-    switch (type) {
-      case AlertType.sos:
-        return {
-          "label": "SOS",
-          "icon": Icons.close,
-          "color": Colors.red,
-          "bg": const Color(0xFFFFE5E5),
-          "button": Colors.red,
-          "action": "Respond",
-        };
-      case AlertType.medical:
-        return {
-          "label": "MEDICAL",
-          "icon": Icons.local_hospital,
-          "color": Colors.blue,
-          "bg": const Color(0xFFE3F2FD),
-          "button": Colors.blue,
-          "action": "Monitor Case",
-        };
-      case AlertType.hazard:
-        return {
-          "label": "HAZARD",
-          "icon": Icons.warning,
-          "color": Colors.red,
-          "bg": const Color(0xFFFFE5E5),
-          "button": Colors.grey.shade300,
-          "action": "Safety Instructions",
-        };
-      case AlertType.rescue:
-        return {
-          "label": "RESCUE",
-          "icon": Icons.search,
-          "color": Colors.orange,
-          "bg": const Color(0xFFFFF3E0),
-          "button": Colors.orange,
-          "action": "Respond to Request",
-        };
-      case AlertType.all:
-        throw UnsupportedError(
-          'AlertType.all should not be used in _alertConfig()',
-        );
-    }
   }
 }

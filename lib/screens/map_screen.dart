@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:help_signal/utilities/alert_data.dart';
+
+import '../core/alert_controller.dart';
+import '../utilities/alert_data.dart';
+import '../utilities/constants.dart';
 
 class MapScreen extends StatefulWidget {
-  final LatLng? initialLocation;
-
   const MapScreen({super.key, this.initialLocation});
+
+  final LatLng? initialLocation;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -15,152 +18,173 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   AlertType activeFilter = AlertType.all;
-  LatLng userLocation = LatLng(28.4953546, 77.0073292);
-  double mapRotation = 0.0;
   LatLng? selectedAlertLocation;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialLocation != null) {
+    selectedAlertLocation = widget.initialLocation;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _moveToInitialLocation(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant MapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialLocation != widget.initialLocation &&
+        widget.initialLocation != null) {
       selectedAlertLocation = widget.initialLocation;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(widget.initialLocation!, 14);
-      });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _moveToInitialLocation(),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: widget.initialLocation ?? userLocation,
-              initialZoom: 13,
-              initialRotation: mapRotation,
-            ),
-            mapController: _mapController,
-            children: [
-              openStreetMapLayer,
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: userLocation,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(
-                      Icons.my_location,
-                      color: Colors.black,
-                      size: 30,
-                    ),
-                  ),
+    final controller = HelpSignalScope.of(context);
 
-                  ...alerts
-                      .where(
-                        (alert) =>
-                            alert.type == activeFilter ||
-                            activeFilter == AlertType.all,
-                      )
-                      .map((alert) {
-                        return Marker(
-                          point: alert.location!,
-                          width: 150,
-                          height: 150,
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                selectedAlertLocation = alert.location;
-                              });
-                              _showAlertCard(context, alert);
-                            },
-                            child: Icon(
-                              alertIcons[alert.type],
-                              color: alert.color,
-                              size: 36,
-                            ),
-                          ),
-                        );
-                      }),
-                ],
-              ),
-              PolylineLayer(
-                polylines: [
-                  if (selectedAlertLocation != null)
-                    Polyline(
-                      points: [userLocation, selectedAlertLocation!],
-                      color: Colors.red,
-                      strokeWidth: 3,
-                    ),
-                ],
-              ),
-            ],
-          ),
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final userLocation = controller.currentLocation ?? kFallbackMapCenter;
+        final alerts = controller.alertsFor(activeFilter);
 
-          Positioned(
-            top: 50,
-            left: 16,
-            right: 16,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _filterChip("All", AlertType.all),
-                  SizedBox(width: 10),
-                  _filterChip("Medical", AlertType.medical),
-                  SizedBox(width: 10),
-                  _filterChip("Rescue", AlertType.rescue),
-                  SizedBox(width: 10),
-                  _filterChip("Hazard", AlertType.hazard),
-                  SizedBox(width: 10),
-                  _filterChip("SOS", AlertType.sos),
-                ],
+        return Stack(
+          children: [
+            FlutterMap(
+              options: MapOptions(
+                initialCenter: widget.initialLocation ?? userLocation,
+                initialZoom: 13,
               ),
-            ),
-          ),
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: Column(
+              mapController: _mapController,
               children: [
-                FloatingActionButton(
-                  onPressed: () {
-                    setState(() {
-                      mapRotation = 0.0;
-                    });
-                    _mapController.move(userLocation, 13);
-                  },
-                  backgroundColor: Colors.red,
-                  child: Icon(
-                    Icons.arrow_circle_up_outlined,
-                    color: Colors.white,
-                  ),
+                openStreetMapLayer,
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: userLocation,
+                      width: 44,
+                      height: 44,
+                      child: const Icon(
+                        Icons.my_location,
+                        color: Colors.black,
+                        size: 30,
+                      ),
+                    ),
+                    ...alerts.map(
+                      (alert) => Marker(
+                        point: alert.location,
+                        width: 80,
+                        height: 80,
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedAlertLocation = alert.location;
+                            });
+                            _showAlertCard(context, controller, alert);
+                          },
+                          child: Icon(
+                            alert.type.icon,
+                            color: alert.type.color,
+                            size: 34,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                FloatingActionButton(
-                  backgroundColor: Colors.red,
-                  onPressed: () {
-                    setState(() {
-                      userLocation = LatLng(
-                        userLocation.latitude + 0.001,
-                        userLocation.longitude + 0.001,
-                      );
-                    });
-                    _mapController.move(userLocation, 13);
-                  },
-                  child: const Icon(Icons.my_location, color: Colors.white),
+                PolylineLayer(
+                  polylines: [
+                    if (selectedAlertLocation != null)
+                      Polyline(
+                        points: [userLocation, selectedAlertLocation!],
+                        color: Colors.red,
+                        strokeWidth: 3,
+                      ),
+                  ],
                 ),
               ],
             ),
-          ),
-        ],
-      ),
+            Positioned(
+              top: 18,
+              left: 16,
+              right: 16,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: AlertType.values
+                      .map(
+                        (type) => Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: _filterChip(type),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 72,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Text(
+                  controller.meshState.statusMessage,
+                  style: const TextStyle(color: Color(0xFF5B403D)),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 20,
+              right: 20,
+              child: Column(
+                children: [
+                  FloatingActionButton.small(
+                    heroTag: 'refresh_map',
+                    onPressed: () async {
+                      final location = await controller.refreshLocation();
+                      _mapController.move(location ?? userLocation, 13);
+                    },
+                    backgroundColor: Colors.white,
+                    child: const Icon(
+                      Icons.gps_fixed,
+                      color: Color(0xFFD92D20),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton(
+                    heroTag: 'center_map',
+                    backgroundColor: Colors.red,
+                    onPressed: () {
+                      setState(() {
+                        selectedAlertLocation = null;
+                      });
+                      _mapController.move(userLocation, 13);
+                    },
+                    child: const Icon(Icons.my_location, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _filterChip(String label, AlertType alertType) {
+  Widget _filterChip(AlertType alertType) {
+    final isActive = activeFilter == alertType;
+
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -168,13 +192,12 @@ class _MapScreenState extends State<MapScreen> {
           selectedAlertLocation = null;
         });
       },
-
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: activeFilter == alertType
-              ? Colors.red
-              : Colors.white.withValues(alpha: 0.7),
+          color: isActive
+              ? alertType.color
+              : Colors.white.withValues(alpha: 0.75),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
@@ -187,15 +210,15 @@ class _MapScreenState extends State<MapScreen> {
           children: [
             if (alertType != AlertType.all)
               Icon(
-                alertIcons[alertType],
-                color: activeFilter == alertType ? Colors.white : Colors.black,
+                alertType.icon,
+                color: isActive ? Colors.white : Colors.black,
                 size: 16,
               ),
             if (alertType != AlertType.all) const SizedBox(width: 6),
             Text(
-              label,
+              alertType.label,
               style: TextStyle(
-                color: activeFilter == alertType ? Colors.white : Colors.black,
+                color: isActive ? Colors.white : Colors.black,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -205,8 +228,19 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void _showAlertCard(BuildContext context, AlertModel alert) {
-    showModalBottomSheet(
+  void _moveToInitialLocation() {
+    if (!mounted || widget.initialLocation == null) {
+      return;
+    }
+    _mapController.move(widget.initialLocation!, 14);
+  }
+
+  void _showAlertCard(
+    BuildContext context,
+    AlertController controller,
+    AlertMessage alert,
+  ) {
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) {
@@ -228,26 +262,38 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              Text("${alert.distance} away • ${alert.time}"),
-
+              Text(
+                '${controller.distanceLabelFor(alert)} away • ${controller.timeLabelFor(alert)}',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                alert.description ?? 'No additional details provided.',
+                style: const TextStyle(color: Color(0xFF5B403D)),
+              ),
               const SizedBox(height: 16),
-
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        Navigator.pop(context);
+                        setState(() {
+                          selectedAlertLocation = alert.location;
+                        });
+                        _mapController.move(alert.location, 14);
+                      },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: alert.color,
+                        backgroundColor: alert.type.color,
+                        foregroundColor: Colors.white,
                       ),
-                      child: const Text("Respond"),
+                      child: const Text('Navigate'),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {},
-                      child: const Text("Details"),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
                     ),
                   ),
                 ],

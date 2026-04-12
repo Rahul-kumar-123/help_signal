@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 const ColorScheme kcolorScheme = ColorScheme(
   brightness: Brightness.light,
@@ -27,8 +28,8 @@ const ColorScheme kcolorScheme = ColorScheme(
   onSurface: Color(0xFF0F172A),
 );
 
-
-
-
-
-
+const int kMaxMeshHopCount = 3;
+const int kBleManufacturerId = 0xFFFF;
+const String kMeshDeviceName = 'HelpNode';
+const Duration kMeshScanTimeout = Duration(seconds: 12);
+const LatLng kFallbackMapCenter = LatLng(28.6139, 77.2090);
