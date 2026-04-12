@@ -58,7 +58,7 @@ class _MyAppState extends State<MyApp> {
         theme: ThemeData(colorScheme: kcolorScheme, useMaterial3: true),
         home: Scaffold(
           appBar: AppBar(
-            backgroundColor: Color.fromARGB(255, 32, 94, 217),
+            backgroundColor: kcolorScheme.primary,
             foregroundColor: kcolorScheme.onPrimary,
             title: const Text(
               'HelpSignal',
