@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -32,34 +33,41 @@ class BLEManager {
     discoveredDevices.clear();
     onUpdate?.call();
 
-    await FlutterBluePlus.adapterState
-        .where((val) => val == BluetoothAdapterState.on)
-        .first;
+    if (FlutterBluePlus.isScanningNow) {
+      await FlutterBluePlus.stopScan();
+    }
 
-    var scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
-      bool listUpdated = false;
+    if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
+      await FlutterBluePlus.adapterState
+          .where((state) => state == BluetoothAdapterState.on)
+          .first
+          .timeout(const Duration(seconds: 4));
+    }
 
-      for (ScanResult device in results) {
+    final scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
+      var listUpdated = false;
+
+      for (final device in results) {
         // Filter for project-specific devices matching the "HelpNode" profile
         final advData = device.advertisementData;
         final isHelpNode =
             advData.advName == kMeshDeviceName ||
             advData.manufacturerData.containsKey(kBleManufacturerId);
 
-        if (!isHelpNode) continue;
+        if (!isHelpNode) {
+          continue;
+        }
 
-        int existingIndex = discoveredDevices.indexWhere(
+        final existingIndex = discoveredDevices.indexWhere(
           (d) => d.device.remoteId == device.device.remoteId,
         );
 
         if (existingIndex == -1) {
           discoveredDevices.add(device);
           listUpdated = true;
-        } else {
-          if (discoveredDevices[existingIndex].rssi != device.rssi) {
-            discoveredDevices[existingIndex] = device;
-            listUpdated = true;
-          }
+        } else if (discoveredDevices[existingIndex].rssi != device.rssi) {
+          discoveredDevices[existingIndex] = device;
+          listUpdated = true;
         }
       }
 
@@ -69,16 +77,17 @@ class BLEManager {
       }
     }, onError: (error) => debugPrint('Scan error: $error'));
 
-    FlutterBluePlus.cancelWhenScanComplete(scanSubscription);
-
     try {
       debugPrint('Starting scan...');
       await FlutterBluePlus.startScan(timeout: timeout);
+      await FlutterBluePlus.isScanning.where((val) => val == false).first;
     } catch (error) {
       debugPrint('Failed to start scan: $error');
+      rethrow;
+    } finally {
+      await scanSubscription.cancel();
     }
 
-    await FlutterBluePlus.isScanning.where((val) => val == false).first;
     debugPrint('Scan finished. Found ${discoveredDevices.length} devices.');
   }
 

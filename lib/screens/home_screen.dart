@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../components/sos_area.dart';
 import '../components/status_area.dart';
 import '../core/alert_controller.dart';
@@ -14,8 +13,8 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = HelpSignalScope.of(context);
 
-    return ListenableBuilder(
-      listenable: controller,
+    return AnimatedBuilder(
+      animation: controller,
       builder: (context, _) {
         return SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -39,6 +38,10 @@ class HomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               _locationBanner(controller),
+              if (controller.lastError != null) ...[
+                const SizedBox(height: 16),
+                _issueBanner(controller.lastError!),
+              ],
               const SizedBox(height: 28),
               Text(
                 'Specific Alerts',
@@ -47,35 +50,7 @@ class HomeScreen extends StatelessWidget {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  ActionCard(
-                    title: 'Medical',
-                    type: AlertType.medical,
-                    onTap: () {
-                      _chooseDescription(
-                        context,
-                        controller,
-                        AlertType.medical,
-                      );
-                    },
-                  ),
-                  ActionCard(
-                    title: 'Rescue',
-                    type: AlertType.rescue,
-                    onTap: () {
-                      _chooseDescription(context, controller, AlertType.rescue);
-                    },
-                  ),
-                  ActionCard(
-                    title: 'Hazard',
-                    type: AlertType.hazard,
-                    onTap: () {
-                      _chooseDescription(context, controller, AlertType.hazard);
-                    },
-                  ),
-                ],
-              ),
+              _specificAlertActions(context, controller),
               const SizedBox(height: 28),
               Container(
                 width: double.infinity,
@@ -112,6 +87,59 @@ class HomeScreen extends StatelessWidget {
               ),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  Widget _specificAlertActions(
+    BuildContext context,
+    AlertController controller,
+  ) {
+    final actions = [
+      (
+        title: 'Medical',
+        type: AlertType.medical,
+        onTap: () => _chooseDescription(context, controller, AlertType.medical),
+      ),
+      (
+        title: 'Rescue',
+        type: AlertType.rescue,
+        onTap: () => _chooseDescription(context, controller, AlertType.rescue),
+      ),
+      (
+        title: 'Hazard',
+        type: AlertType.hazard,
+        onTap: () => _chooseDescription(context, controller, AlertType.hazard),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        final columns = constraints.maxWidth >= 260
+            ? 3
+            : constraints.maxWidth >= 240
+            ? 2
+            : 1;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: actions
+              .map(
+                (action) => SizedBox(
+                  width: itemWidth,
+                  child: ActionCard(
+                    title: action.title,
+                    type: action.type,
+                    onTap: action.onTap,
+                  ),
+                ),
+              )
+              .toList(),
         );
       },
     );
@@ -157,6 +185,38 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  Widget _issueBanner(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFDA4AF)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(Icons.info_outline, color: Color(0xFFD92D20)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF7F1D1D),
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _chooseDescription(
     BuildContext context,
     AlertController controller,
@@ -164,54 +224,58 @@ class HomeScreen extends StatelessWidget {
   ) async {
     final options = predefinedDescriptions[type] ?? const <String>[];
 
+    final parentContext = context;
+
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Send ${type.label} Alert',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Choose a quick description to include with the alert.',
-                ),
-                const SizedBox(height: 16),
-                ...options.asMap().entries.map(
-                  (entry) => ListTile(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Send ${type.label} Alert',
+                    style: Theme.of(parentContext).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Choose a quick description to include with the alert.',
+                  ),
+                  const SizedBox(height: 16),
+                  ...options.asMap().entries.map(
+                    (entry) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(type.icon, color: type.color),
+                      title: Text(entry.value),
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+                        await _sendAlert(
+                          parentContext,
+                          controller,
+                          type,
+                          descriptionCode: entry.key,
+                        );
+                      },
+                    ),
+                  ),
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(type.icon, color: type.color),
-                    title: Text(entry.value),
+                    leading: const Icon(Icons.send_outlined),
+                    title: const Text('Send without additional details'),
                     onTap: () async {
-                      Navigator.pop(context);
-                      await _sendAlert(
-                        context,
-                        controller,
-                        type,
-                        descriptionCode: entry.key,
-                      );
+                      Navigator.pop(sheetContext);
+                      await _sendAlert(parentContext, controller, type);
                     },
                   ),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.send_outlined),
-                  title: const Text('Send without additional details'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await _sendAlert(context, controller, type);
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -225,13 +289,16 @@ class HomeScreen extends StatelessWidget {
     AlertType type, {
     int? descriptionCode,
   }) async {
-    final messenger = ScaffoldMessenger.of(context);
     final result = await controller.sendAlert(
       type,
       descriptionCode: descriptionCode,
     );
 
-    messenger.showSnackBar(SnackBar(content: Text(result)));
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result)));
   }
 }
 
@@ -249,39 +316,36 @@ class ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: InkWell(
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Ink(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: type.lightColor,
           borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Ink(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: type.lightColor,
-              borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.65),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(type.icon, color: type.color, size: 28),
             ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.65),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(type.icon, color: type.color, size: 28),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: type.color,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: type.color,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     as ble_peripheral;
 
+import '../utilities/constants.dart';
+
 class SimpleBleAdvertiser {
   ble_peripheral.PeripheralManager? _peripheralManager;
 
   bool isAdvertising = false;
-  String deviceName = 'HelpNode';
+  String deviceName = kMeshDeviceName;
 
   Future<void> initialize() async {
     try {
@@ -18,12 +20,16 @@ class SimpleBleAdvertiser {
     }
   }
 
-  Future<void> startAdvertising(List<int> payload) async {
-    if (isAdvertising) return;
-    if (_peripheralManager == null) return;
+  Future<bool> startAdvertising(List<int> payload) async {
+    if (isAdvertising) {
+      return true;
+    }
+    if (_peripheralManager == null) {
+      return false;
+    }
 
     final manufacturerData = ble_peripheral.ManufacturerSpecificData(
-      id: 0xFFFF,
+      id: kBleManufacturerId,
       data: Uint8List.fromList(payload),
     );
 
@@ -36,14 +42,18 @@ class SimpleBleAdvertiser {
       await _peripheralManager!.startAdvertising(advertisement);
       isAdvertising = true;
       debugPrint('Started broadcasting payload (${payload.length} bytes).');
+      return true;
     } catch (error) {
+      isAdvertising = false;
       debugPrint('Failed to start broadcasting: $error');
+      return false;
     }
   }
 
   Future<void> stopAdvertising() async {
-    if (!isAdvertising) return;
-    if (_peripheralManager == null) return;
+    if (!isAdvertising || _peripheralManager == null) {
+      return;
+    }
 
     try {
       await _peripheralManager!.stopAdvertising();
@@ -54,9 +64,9 @@ class SimpleBleAdvertiser {
     }
   }
 
-  Future<void> updatePayload(List<int> newPayload) async {
+  Future<bool> updatePayload(List<int> newPayload) async {
     await stopAdvertising();
-    await startAdvertising(newPayload);
+    return startAdvertising(newPayload);
   }
 
   void dispose() {

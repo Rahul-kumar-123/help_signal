@@ -1,8 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
-
 import '../utilities/alert_data.dart';
 import '../utilities/constants.dart';
 import 'alert_manager.dart';
@@ -14,16 +12,29 @@ class AlertController extends ChangeNotifier {
     AlertManager? alertManager,
     MeshManager? meshManager,
     LocationManager? locationManager,
+    Duration startupStorageTimeout = const Duration(seconds: 4),
+    Duration startupLocationTimeout = const Duration(seconds: 6),
+    Duration refreshLocationTimeout = const Duration(seconds: 8),
+    Duration meshInitializationTimeout = const Duration(seconds: 8),
   }) : _alertManager = alertManager ?? AlertManager(),
        _meshManager = meshManager ?? MeshManager(),
-       _locationManager = locationManager ?? LocationManager();
+       _locationManager = locationManager ?? LocationManager(),
+       _startupStorageTimeout = startupStorageTimeout,
+       _startupLocationTimeout = startupLocationTimeout,
+       _refreshLocationTimeout = refreshLocationTimeout,
+       _meshInitializationTimeout = meshInitializationTimeout;
 
   final AlertManager _alertManager;
   final MeshManager _meshManager;
   final LocationManager _locationManager;
+  final Duration _startupStorageTimeout;
+  final Duration _startupLocationTimeout;
+  final Duration _refreshLocationTimeout;
+  final Duration _meshInitializationTimeout;
 
   bool _isInitializing = true;
   bool _isSendingAlert = false;
+  bool _isDisposed = false;
   LatLng? _currentLocation;
   String? _lastError;
   MeshNetworkState _meshState = const MeshNetworkState();
@@ -39,41 +50,42 @@ class AlertController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      await _alertManager.initialize();
-      _currentLocation =
-          await _locationManager.getCurrentLocation() ??
-          _alertManager.lastKnownLocation ??
-          kFallbackMapCenter;
-      await _alertManager.updateLastKnownLocation(_currentLocation);
-
-      await _meshManager.initialize(
-        localSenderId: deviceId,
-        onAlertReceived: _handleIncomingAlert,
-        onStateChanged: _handleMeshStateChanged,
-      );
+      await _alertManager.initialize().timeout(_startupStorageTimeout);
+      _currentLocation = _alertManager.lastKnownLocation;
+    } on TimeoutException {
+      _lastError =
+          'Loading saved alerts is taking too long. HelpSignal will continue with fresh local state.';
     } catch (error) {
-      _lastError = error.toString();
-      _currentLocation ??= kFallbackMapCenter;
+      _recordError(error, fallbackMessage: 'Unable to load saved alerts.');
+      _currentLocation ??= _alertManager.lastKnownLocation;
     } finally {
       _isInitializing = false;
-      notifyListeners();
+      _notifySafely();
     }
+
+    if (_isDisposed) {
+      return;
+    }
+
+    unawaited(_warmUpLocation());
+    unawaited(_initializeMeshInBackground());
   }
 
   Future<String> sendAlert(AlertType type, {int? descriptionCode}) async {
+    if (_isInitializing) {
+      return 'HelpSignal is still preparing device services.';
+    }
+
     if (_isSendingAlert) {
       return 'Another alert is already being prepared.';
     }
 
     _isSendingAlert = true;
     _lastError = null;
-    notifyListeners();
+    _notifySafely();
 
     try {
-      final location = await refreshLocation();
-      if (location == null) {
-        throw StateError('Location is required to create an alert.');
-      }
+      final location = await refreshLocation() ?? kFallbackMapCenter;
 
       final alert = await _alertManager.createAlert(
         type: type,
@@ -81,35 +93,43 @@ class AlertController extends ChangeNotifier {
         descriptionCode: descriptionCode,
       );
       await _meshManager.broadcastAlert(alert);
-      notifyListeners();
+      _notifySafely();
       return _meshState.nearbyDeviceCount == 0
           ? '${type.label} alert saved and queued for relay.'
           : '${type.label} alert broadcast to nearby nodes.';
     } catch (error) {
-      _lastError = error.toString();
-      notifyListeners();
+      _recordError(error, fallbackMessage: 'Unable to send alert right now.');
+      _notifySafely();
       return 'Unable to send alert right now.';
     } finally {
       _isSendingAlert = false;
-      notifyListeners();
+      _notifySafely();
     }
   }
 
   Future<LatLng?> refreshLocation() async {
     final location =
-        await _locationManager.getCurrentLocation() ??
+        await _readCurrentLocation(
+          timeout: _refreshLocationTimeout,
+          timeoutMessage:
+              'Location lookup timed out. Last known coordinates will be used when available.',
+        ) ??
         _alertManager.lastKnownLocation;
     if (location != null) {
       _currentLocation = location;
       await _alertManager.updateLastKnownLocation(location);
-      notifyListeners();
+      _notifySafely();
     }
     return location;
   }
 
   Future<void> refreshMesh() async {
+    if (_isInitializing) {
+      return;
+    }
+
     await _meshManager.refreshNearbyDevices();
-    notifyListeners();
+    _notifySafely();
   }
 
   List<AlertMessage> alertsFor(AlertType type) {
@@ -138,6 +158,7 @@ class AlertController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _meshManager.dispose();
     super.dispose();
   }
@@ -145,14 +166,103 @@ class AlertController extends ChangeNotifier {
   Future<bool> _handleIncomingAlert(AlertMessage alert) async {
     final didStore = await _alertManager.processIncomingAlert(alert);
     if (didStore) {
-      notifyListeners();
+      _notifySafely();
     }
     return didStore;
   }
 
   void _handleMeshStateChanged(MeshNetworkState state) {
     _meshState = state;
-    notifyListeners();
+    _notifySafely();
+  }
+
+  Future<void> _warmUpLocation() async {
+    final location = await _readCurrentLocation(
+      timeout: _startupLocationTimeout,
+      timeoutMessage:
+          'Live location is taking too long to load. The app will keep working and update when coordinates are available.',
+    );
+
+    if (location == null) {
+      _notifySafely();
+      return;
+    }
+
+    _currentLocation = location;
+    await _alertManager.updateLastKnownLocation(location);
+    _notifySafely();
+  }
+
+  Future<void> _initializeMeshInBackground() async {
+    try {
+      await _meshManager
+          .initialize(
+            localSenderId: deviceId,
+            onAlertReceived: _handleIncomingAlert,
+            onStateChanged: _handleMeshStateChanged,
+          )
+          .timeout(_meshInitializationTimeout);
+    } on TimeoutException {
+      _meshState = _meshState.copyWith(
+        isScanning: false,
+        isAdvertising: false,
+        statusMessage:
+            'Mesh startup is taking longer than expected. Local alerts are still available.',
+      );
+      _notifySafely();
+    } catch (error) {
+      _recordError(
+        error,
+        fallbackMessage: 'Mesh services are unavailable right now.',
+        overwrite: false,
+      );
+      _meshState = _meshState.copyWith(
+        isScanning: false,
+        isAdvertising: false,
+        statusMessage: 'Mesh services are unavailable right now.',
+      );
+      _notifySafely();
+    }
+  }
+
+  Future<LatLng?> _readCurrentLocation({
+    required Duration timeout,
+    required String timeoutMessage,
+  }) async {
+    try {
+      return await _locationManager.getCurrentLocation().timeout(timeout);
+    } on TimeoutException {
+      if (_currentLocation == null && _alertManager.lastKnownLocation == null) {
+        _lastError = timeoutMessage;
+      }
+      return null;
+    } catch (error) {
+      _recordError(
+        error,
+        fallbackMessage: 'Unable to determine the current location.',
+        overwrite: false,
+      );
+      return null;
+    }
+  }
+
+  void _recordError(
+    Object error, {
+    String? fallbackMessage,
+    bool overwrite = true,
+  }) {
+    final message = error.toString().trim();
+    if (!overwrite && _lastError != null) {
+      return;
+    }
+
+    _lastError = message.isEmpty ? fallbackMessage : message;
+  }
+
+  void _notifySafely() {
+    if (!_isDisposed) {
+      notifyListeners();
+    }
   }
 }
 
@@ -165,7 +275,13 @@ class HelpSignalScope extends InheritedNotifier<AlertController> {
 
   static AlertController of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<HelpSignalScope>();
-    assert(scope != null, 'HelpSignalScope not found in widget tree.');
-    return scope!.notifier!;
+    final notifier = scope?.notifier;
+    if (notifier == null) {
+      throw FlutterError(
+        'HelpSignalScope not found in the widget tree. '
+        'Wrap the app with HelpSignalScope before reading the controller.',
+      );
+    }
+    return notifier;
   }
 }

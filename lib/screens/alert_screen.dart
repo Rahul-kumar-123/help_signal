@@ -20,8 +20,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
   Widget build(BuildContext context) {
     final controller = HelpSignalScope.of(context);
 
-    return ListenableBuilder(
-      listenable: controller,
+    return AnimatedBuilder(
+      animation: controller,
       builder: (context, _) {
         final filteredAlerts = controller.alertsFor(activeFilter);
 
@@ -79,19 +79,26 @@ class _AlertsScreenState extends State<AlertsScreen> {
           final filter = filters[index];
           final isActive = activeFilter == filter;
 
-          return GestureDetector(
-            onTap: () => setState(() => activeFilter = filter),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              decoration: BoxDecoration(
-                color: isActive ? filter.color : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                filter.label,
-                style: TextStyle(
-                  color: isActive ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.w500,
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => setState(() => activeFilter = filter),
+              child: Ink(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: isActive ? filter.color : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  filter.label,
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
@@ -129,9 +136,9 @@ class _AlertsScreenState extends State<AlertsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
+          boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.07),
+            color: Colors.black.withOpacity(0.07),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -141,21 +148,31 @@ class _AlertsScreenState extends State<AlertsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _tag(alert.type),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    controller.distanceLabelFor(alert),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    controller.timeLabelFor(alert),
-                    style: const TextStyle(color: Color(0xFF5B403D)),
-                  ),
-                ],
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _tag(alert.type),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      controller.distanceLabelFor(alert),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.end,
+                    ),
+                    Text(
+                      controller.timeLabelFor(alert),
+                      style: const TextStyle(color: Color(0xFF5B403D)),
+                      textAlign: TextAlign.end,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -174,9 +191,19 @@ class _AlertsScreenState extends State<AlertsScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          Text(
-            'Hop count: ${alert.hopCount} • Sender: ${alert.senderId}',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+          Wrap(
+            spacing: 10,
+            runSpacing: 4,
+            children: [
+              Text(
+                'Hop count: ${alert.hopCount}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+              ),
+              Text(
+                'Sender: ${alert.senderId}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           _actionButton(context, controller, alert),
@@ -262,51 +289,56 @@ class _AlertsScreenState extends State<AlertsScreen> {
   ) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                alert.title,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        return SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  alert.title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                alert.description ?? 'No additional details provided.',
-                style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    controller.distanceLabelFor(alert),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    controller.timeLabelFor(alert),
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text('Close'),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  alert.description ?? 'No additional details provided.',
+                  style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  children: [
+                    Text(
+                      controller.distanceLabelFor(alert),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      controller.timeLabelFor(alert),
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -320,44 +352,48 @@ class _AlertsScreenState extends State<AlertsScreen> {
   ) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Hazard Safety Instructions',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                alert.description ?? 'No hazard details provided.',
-                style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Move to a safe distance immediately. Avoid the affected area until help arrives. Follow any local authority instructions and keep others clear of the hazard zone.',
-                style: TextStyle(height: 1.5),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Reported ${controller.timeLabelFor(alert)} at ${controller.distanceLabelFor(alert)}.',
-                style: const TextStyle(color: Color(0xFF6B7280)),
-              ),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text('Understood'),
-              ),
-            ],
+        return SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Hazard Safety Instructions',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  alert.description ?? 'No hazard details provided.',
+                  style: const TextStyle(color: Color(0xFF5B403D), height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Move to a safe distance immediately. Avoid the affected area until help arrives. Follow any local authority instructions and keep others clear of the hazard zone.',
+                  style: TextStyle(height: 1.5),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Reported ${controller.timeLabelFor(alert)} at ${controller.distanceLabelFor(alert)}.',
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  child: const Text('Understood'),
+                ),
+              ],
+            ),
           ),
         );
       },

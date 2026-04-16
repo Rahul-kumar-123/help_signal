@@ -259,16 +259,27 @@ class AlertMessage {
 
 String formatRelativeTime(DateTime timestamp, {DateTime? now}) {
   final currentTime = now ?? DateTime.now();
+
+  if (timestamp.isAfter(currentTime)) {
+    return 'Just now';
+  }
+
   final difference = currentTime.difference(timestamp);
+  final seconds = difference.inSeconds.clamp(1, 59);
+  final minutes = difference.inMinutes;
+  final hours = difference.inHours;
+  final days = difference.inDays;
 
   if (difference.inSeconds < 60) {
-    return '${difference.inSeconds.clamp(1, 59)} sec ago';
+    return '$seconds sec ago';
   }
-  if (difference.inMinutes < 60) {
-    return '${difference.inMinutes} min ago';
+  if (minutes < 60) {
+    return '$minutes min ago';
   }
-  if (difference.inHours < 24) {
-    return '${difference.inHours} hr ago';
+  if (hours < 24) {
+    return '$hours hr ago';
   }
-  return '${difference.inDays} day ago';
+
+  final suffix = days == 1 ? '' : 's';
+  return '$days day$suffix ago';
 }

@@ -4,9 +4,13 @@ import 'package:latlong2/latlong.dart';
 class LocationManager {
   Future<LatLng?> getCurrentLocation() async {
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        return _getLastKnownLocation();
+        await Geolocator.openLocationSettings();
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          return _getLastKnownLocation();
+        }
       }
 
       var permission = await Geolocator.checkPermission();

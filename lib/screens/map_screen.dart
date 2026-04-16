@@ -32,12 +32,13 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void didUpdateWidget(covariant MapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialLocation != widget.initialLocation &&
-        widget.initialLocation != null) {
+    if (oldWidget.initialLocation != widget.initialLocation) {
       selectedAlertLocation = widget.initialLocation;
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _moveToInitialLocation(),
-      );
+      if (widget.initialLocation != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _moveToInitialLocation(),
+        );
+      }
     }
   }
 
@@ -45,8 +46,8 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final controller = HelpSignalScope.of(context);
 
-    return ListenableBuilder(
-      listenable: controller,
+    return AnimatedBuilder(
+      animation: controller,
       builder: (context, _) {
         final userLocation = controller.currentLocation ?? kFallbackMapCenter;
         final alerts = controller.alertsFor(activeFilter);
@@ -129,13 +130,13 @@ class _MapScreenState extends State<MapScreen> {
               top: 72,
               left: 16,
               right: 16,
-              child: Container(
+                child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.92),
+                  color: Colors.white.withOpacity(0.92),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Text(
@@ -153,6 +154,9 @@ class _MapScreenState extends State<MapScreen> {
                     heroTag: 'refresh_map',
                     onPressed: () async {
                       final location = await controller.refreshLocation();
+                      if (!mounted) {
+                        return;
+                      }
                       _mapController.move(location ?? userLocation, 13);
                     },
                     backgroundColor: Colors.white,
@@ -185,44 +189,49 @@ class _MapScreenState extends State<MapScreen> {
   Widget _filterChip(AlertType alertType) {
     final isActive = activeFilter == alertType;
 
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          activeFilter = alertType;
-          selectedAlertLocation = null;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isActive
-              ? alertType.color
-              : Colors.white.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            if (alertType != AlertType.all)
-              Icon(
-                alertType.icon,
-                color: isActive ? Colors.white : Colors.black,
-                size: 16,
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          setState(() {
+            activeFilter = alertType;
+            selectedAlertLocation = null;
+          });
+        },
+            child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: isActive
+                ? alertType.color
+                : Colors.white.withOpacity(0.75),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 6,
               ),
-            if (alertType != AlertType.all) const SizedBox(width: 6),
-            Text(
-              alertType.label,
-              style: TextStyle(
-                color: isActive ? Colors.white : Colors.black,
-                fontWeight: FontWeight.w500,
+            ],
+          ),
+          child: Row(
+            children: [
+              if (alertType != AlertType.all)
+                Icon(
+                  alertType.icon,
+                  color: isActive ? Colors.white : Colors.black,
+                  size: 16,
+                ),
+              if (alertType != AlertType.all) const SizedBox(width: 6),
+              Text(
+                alertType.label,
+                style: TextStyle(
+                  color: isActive ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -242,63 +251,72 @@ class _MapScreenState extends State<MapScreen> {
   ) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                alert.title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+        return SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  alert.title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${controller.distanceLabelFor(alert)} away • ${controller.timeLabelFor(alert)}',
-              ),
-              const SizedBox(height: 8),
-              Text(
-                alert.description ?? 'No additional details provided.',
-                style: const TextStyle(color: Color(0xFF5B403D)),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        setState(() {
-                          selectedAlertLocation = alert.location;
-                        });
-                        _mapController.move(alert.location, 14);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: alert.type.color,
-                        foregroundColor: Colors.white,
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text('${controller.distanceLabelFor(alert)} away'),
+                    Text(controller.timeLabelFor(alert)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  alert.description ?? 'No additional details provided.',
+                  style: const TextStyle(color: Color(0xFF5B403D)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          setState(() {
+                            selectedAlertLocation = alert.location;
+                          });
+                          _mapController.move(alert.location, 14);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: alert.type.color,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Navigate'),
                       ),
-                      child: const Text('Navigate'),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },

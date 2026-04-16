@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 class SOSArea extends StatelessWidget {
   const SOSArea({required this.isSending, required this.onTrigger, super.key});
-
   final bool isSending;
   final VoidCallback onTrigger;
 
@@ -28,7 +27,7 @@ class SOSArea extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFD92D20).withValues(alpha: 0.28),
+                  color: const Color(0xFFD92D20).withOpacity(0.28),
                   blurRadius: 28,
                   offset: const Offset(0, 18),
                 ),
@@ -43,7 +42,7 @@ class SOSArea extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: Colors.white.withOpacity(0.18),
                       width: 2.5,
                     ),
                   ),

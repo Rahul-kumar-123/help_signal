@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs access to location to attach coordinates to your emergency alerts.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs access to location to attach coordinates to your emergency alerts.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>This app needs Bluetooth to broadcast and receive emergency signals.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app needs Bluetooth to broadcast and receive emergency signals offline.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

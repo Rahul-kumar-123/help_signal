@@ -275,6 +275,8 @@ class MeshManager {
         alert,
         statusMessage: 'Forwarded queued ${alert.type.label} alert',
       );
+      // Wait for the alert to broadcast for a few seconds before the next one overwrites it
+      await Future.delayed(const Duration(seconds: 4));
     }
   }
 
@@ -283,14 +285,16 @@ class MeshManager {
     required String statusMessage,
   }) async {
     final payload = utf8.encode(jsonEncode(alert.toBlePacket()));
-    await _advertiser.updatePayload(payload);
+    final didAdvertise = await _advertiser.updatePayload(payload);
 
     _updateState(
       _state.copyWith(
-        isAdvertising: _advertiser.isAdvertising,
+        isAdvertising: didAdvertise,
         lastActivityAt: DateTime.now(),
         queuedAlertCount: _pendingAlerts.length,
-        statusMessage: statusMessage,
+        statusMessage: didAdvertise
+            ? statusMessage
+            : 'Alert stored locally, but broadcasting is unavailable',
       ),
     );
   }
