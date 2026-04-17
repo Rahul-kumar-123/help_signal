@@ -1,11 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-
 import 'dart:collection';
-
 import '../services/ble_advertiser.dart';
 import '../services/ble_scanner.dart';
 import '../utilities/alert_data.dart';

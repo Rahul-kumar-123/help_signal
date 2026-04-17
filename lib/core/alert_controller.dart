@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../utilities/alert_data.dart';
-import '../utilities/constants.dart';
 import 'alert_manager.dart';
 import 'location_manager.dart';
 import 'mesh_manager.dart';
