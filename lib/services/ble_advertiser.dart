@@ -17,6 +17,7 @@ class SimpleBleAdvertiser {
       debugPrint('Broadcaster initialized.');
     } catch (error) {
       debugPrint('Failed to initialize broadcaster: $error');
+      rethrow;
     }
   }
 
@@ -46,7 +47,7 @@ class SimpleBleAdvertiser {
     } catch (error) {
       isAdvertising = false;
       debugPrint('Failed to start broadcasting: $error');
-      return false;
+      rethrow;
     }
   }
 

@@ -85,18 +85,23 @@ class AlertController extends ChangeNotifier {
     _notifySafely();
 
     try {
-      final location = await refreshLocation() ?? kFallbackMapCenter;
+      final location = await refreshLocation();
+      if (location == null) {
+        _isSendingAlert = false;
+        _notifySafely();
+        return 'Location unavailable — cannot pin alert to map. Please enable GPS.';
+      }
 
       final alert = await _alertManager.createAlert(
         type: type,
         location: location,
         descriptionCode: descriptionCode,
       );
-      await _meshManager.broadcastAlert(alert);
+      final broadcastSuccess = await _meshManager.broadcastAlert(alert);
       _notifySafely();
-      return _meshState.nearbyDeviceCount == 0
-          ? '${type.label} alert saved and queued for relay.'
-          : '${type.label} alert broadcast to nearby nodes.';
+      return broadcastSuccess
+          ? '${type.label} alert saved and broadcast successfully.'
+          : '${type.label} alert saved locally, but Bluetooth broadcast failed.';
     } catch (error) {
       _recordError(error, fallbackMessage: 'Unable to send alert right now.');
       _notifySafely();
@@ -128,7 +133,10 @@ class AlertController extends ChangeNotifier {
       return;
     }
 
+    // Stop continuous scanning, do a fresh one-shot scan, then restart continuous
+    await _meshManager.stopContinuousDiscovery();
     await _meshManager.refreshNearbyDevices();
+    _meshManager.startContinuousDiscovery();
     _notifySafely();
   }
 
@@ -159,6 +167,7 @@ class AlertController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _meshManager.stopContinuousDiscovery();
     _meshManager.dispose();
     super.dispose();
   }

@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
+import 'dart:collection';
 
 import '../services/ble_advertiser.dart';
 import '../services/ble_scanner.dart';
 import '../utilities/alert_data.dart';
 import '../utilities/constants.dart';
+
+enum MeshHealth { strong, weak, unstable, dead }
 
 class MeshNetworkState {
   final bool bluetoothSupported;
@@ -46,6 +51,14 @@ class MeshNetworkState {
       statusMessage: statusMessage ?? this.statusMessage,
     );
   }
+
+  MeshHealth get computedHealth {
+    if (!bluetoothSupported || nearbyDeviceCount == 0 || lastActivityAt == null) return MeshHealth.dead;
+    final diff = DateTime.now().difference(lastActivityAt!);
+    if (diff.inSeconds < 10) return MeshHealth.strong;
+    if (diff.inSeconds < 30) return MeshHealth.weak;
+    return MeshHealth.unstable;
+  }
 }
 
 typedef MeshAlertHandler = Future<bool> Function(AlertMessage alert);
@@ -64,11 +77,15 @@ class MeshManager {
   final int maxHopCount;
 
   final Set<String> _processedMessages = {};
-  final List<AlertMessage> _pendingAlerts = [];
+  final Queue<AlertMessage> _broadcastQueue = Queue<AlertMessage>();
   MeshNetworkState _state = const MeshNetworkState();
+  StreamSubscription<BluetoothAdapterState>? _btStateSubscription;
+  Timer? _watchdogTimer;
   MeshAlertHandler? _onAlertReceived;
   MeshStateListener? _onStateChanged;
   String _localSenderId = '';
+  bool _continuousDiscoveryActive = false;
+  bool _isBroadcasting = false;
 
   MeshNetworkState get state => _state;
 
@@ -95,10 +112,30 @@ class MeshManager {
       return;
     }
 
+    _btStateSubscription = FlutterBluePlus.adapterState.listen((state) {
+      if (state == BluetoothAdapterState.off || state == BluetoothAdapterState.unauthorized) {
+        unawaited(stopContinuousDiscovery());
+        _updateState(_state.copyWith(
+          bluetoothSupported: false,
+          nearbyDeviceCount: 0,
+          statusMessage: 'Bluetooth turned off or unauthorized',
+        ));
+      } else if (state == BluetoothAdapterState.on) {
+        if (!_state.bluetoothSupported) {
+          _updateState(_state.copyWith(bluetoothSupported: true));
+        }
+      }
+    });
+
     try {
       await _scanner.initializeBluetooth();
       await _advertiser.initialize();
+      // Broadcast a 1-byte payload so we are discoverable (Heartbeat). Android often drops 0-byte manufacturer payloads.
+      await _advertiser.updatePayload([0]);
+      // Do an initial one-shot scan to populate immediately
       await refreshNearbyDevices();
+      // Then start continuous scanning
+      startContinuousDiscovery();
     } catch (_) {
       _updateState(
         _state.copyWith(
@@ -122,6 +159,7 @@ class MeshManager {
     );
 
     try {
+      await stopContinuousDiscovery();
       await _scanner.startTargetedScan(
         timeout: kMeshScanTimeout,
         onUpdate: _handleScanUpdate,
@@ -147,43 +185,119 @@ class MeshManager {
     );
 
     if (_scanner.discoveredDevices.isNotEmpty) {
-      await _flushPendingAlerts();
+      unawaited(_processBroadcastQueue());
     }
   }
 
-  Future<void> broadcastAlert(AlertMessage alert) async {
-    _processedMessages.add(alert.messageId);
-    if (!_state.bluetoothSupported || _state.nearbyDeviceCount == 0) {
-      _queueAlert(
-        alert,
-        _state.bluetoothSupported
-            ? 'Alert stored until a peer is discovered'
-            : 'Bluetooth unavailable, alert stored locally',
-      );
+  /// Starts continuous background scanning that repeatedly discovers nearby
+  /// nodes and processes their alert payloads. This keeps the mesh alive
+  /// so new nodes are detected automatically and alerts are relayed without
+  /// manual refresh.
+  void startContinuousDiscovery() {
+    if (_continuousDiscoveryActive || !_state.bluetoothSupported) {
       return;
     }
 
-    await _publishAlert(
-      alert,
-      statusMessage: 'Broadcasting ${alert.type.label} alert',
+    _continuousDiscoveryActive = true;
+    debugPrint('MeshManager: starting continuous discovery');
+
+    _updateState(
+      _state.copyWith(
+        isScanning: false, // Keep UI spinner hidden during silent background loop
+        statusMessage: 'Continuously scanning for nearby nodes',
+      ),
     );
+
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!_continuousDiscoveryActive || !_state.bluetoothSupported) return;
+      
+      final diff = _state.lastActivityAt == null 
+           ? const Duration(seconds: 60) 
+           : DateTime.now().difference(_state.lastActivityAt!);
+      
+      if (diff > const Duration(seconds: 30)) {
+        debugPrint('MeshManager: Watchdog triggered, restarting scan loop');
+        _scanner.discoveredDevices.clear();
+        unawaited(refreshNearbyDevices());
+      }
+    });
+
+    // Fire-and-forget the continuous scan loop — it runs until stopped
+    unawaited(_scanner.startContinuousScan(
+      onUpdate: () {
+        _handleScanUpdate();
+
+        // Update state with current device count
+        _updateState(
+          _state.copyWith(
+            isScanning: false,
+            nearbyDeviceCount: _scanner.discoveredDevices.length,
+            statusMessage: _scanner.discoveredDevices.isEmpty
+                ? 'Scanning for nearby HelpSignal nodes'
+                : '${_scanner.discoveredDevices.length} node(s) discovered — mesh active',
+            lastActivityAt: _scanner.discoveredDevices.isNotEmpty
+                ? DateTime.now()
+                : _state.lastActivityAt,
+          ),
+        );
+
+        // Flush pending alerts whenever we find peers
+        if (_scanner.discoveredDevices.isNotEmpty) {
+          unawaited(_processBroadcastQueue());
+        }
+      },
+    ).then((_) {
+      // Loop exited (stopContinuousScan was called)
+      _continuousDiscoveryActive = false;
+      _updateState(
+        _state.copyWith(
+          isScanning: false,
+          statusMessage: 'Continuous scanning stopped',
+        ),
+      );
+    }));
+  }
+
+  /// Stops the continuous discovery loop.
+  Future<void> stopContinuousDiscovery() async {
+    if (!_continuousDiscoveryActive) return;
+    debugPrint('MeshManager: stopping continuous discovery');
+    await _scanner.stopContinuousScan();
+    _continuousDiscoveryActive = false;
+  }
+
+  Future<bool> broadcastAlert(AlertMessage alert) async {
+    _processedMessages.add(alert.messageId);
+    if (!_state.bluetoothSupported) {
+      _enqueueBroadcast(alert, 'Bluetooth unavailable, alert queued locally');
+      return false;
+    }
+
+    _enqueueBroadcast(alert, 'Alert queued for broadcast');
+    return true;
   }
 
   Future<void> receiveAlert(AlertMessage alert) async {
-    if (alert.senderId == _localSenderId) {
-      return;
-    }
+    // Reject messages we originated ourselves
+    if (alert.senderId == _localSenderId) return;
 
-    if (alert.hopCount > maxHopCount ||
-        _processedMessages.contains(alert.messageId)) {
-      return;
-    }
+    // Reject if max hops exceeded
+    if (alert.hopCount > maxHopCount) return;
 
-    _processedMessages.add(alert.messageId);
-    final accepted = await _onAlertReceived?.call(alert) ?? false;
-    if (!accepted) {
-      return;
-    }
+    // Deduplicate: if we've already processed this exact (messageId, hopCount)
+    // pair, skip. Using hopCount in the key lets the same alert travel through
+    // multiple hops without being silently dropped at an intermediate node.
+    final dedupKey = '${alert.messageId}:${alert.hopCount}';
+    if (_processedMessages.contains(dedupKey)) return;
+    _processedMessages.add(dedupKey);
+
+    debugPrint('MeshManager: received alert ${alert.type.label} '
+        'msgId=${alert.messageId} hop=${alert.hopCount}');
+
+    // Store the alert on this device (may return false if already stored —
+    // that's fine, we still relay it).
+    unawaited(_onAlertReceived?.call(alert));
 
     _updateState(
       _state.copyWith(
@@ -192,27 +306,23 @@ class MeshManager {
       ),
     );
 
+    // Relay to the next hop if budget allows
     if (alert.hopCount < maxHopCount) {
-      await relayAlert(alert.relayed());
+      debugPrint('MeshManager: relaying alert hop ${alert.hopCount + 1}');
+      _enqueueBroadcast(alert.relayed(), 'Relaying ${alert.type.label} (hop ${alert.hopCount + 1})');
     }
   }
 
   Future<void> relayAlert(AlertMessage alert) async {
-    if (_state.nearbyDeviceCount == 0) {
-      _queueAlert(alert, 'Relay queued until another peer comes online');
-      return;
-    }
-
-    await _publishAlert(
-      alert,
-      statusMessage:
-          'Relaying ${alert.type.label} alert (hop ${alert.hopCount})',
-    );
+    _enqueueBroadcast(alert, 'Relay queued for broadcast');
   }
 
   void dispose() {
+    _btStateSubscription?.cancel();
+    _watchdogTimer?.cancel();
     _scanner.dispose();
     _advertiser.dispose();
+    _continuousDiscoveryActive = false;
   }
 
   void _handleScanUpdate() {
@@ -237,80 +347,127 @@ class MeshManager {
     }
   }
 
-  void _queueAlert(AlertMessage alert, String statusMessage) {
-    final index = _pendingAlerts.indexWhere(
-      (message) => message.messageId == alert.messageId,
-    );
-    if (index == -1) {
-      _pendingAlerts.add(alert);
-    } else {
-      _pendingAlerts[index] = alert;
+  void _enqueueBroadcast(AlertMessage alert, String statusMessage) {
+    if (!_broadcastQueue.any((a) => a.messageId == alert.messageId)) {
+      _broadcastQueue.add(alert);
+      if (_broadcastQueue.length > 20) {
+        _broadcastQueue.removeFirst();
+      }
     }
-
-    _updateState(
-      _state.copyWith(
-        queuedAlertCount: _pendingAlerts.length,
-        statusMessage: statusMessage,
-      ),
-    );
+    _updateState(_state.copyWith(
+       queuedAlertCount: _broadcastQueue.length,
+       statusMessage: statusMessage,
+    ));
+    unawaited(_processBroadcastQueue());
   }
 
-  Future<void> _flushPendingAlerts() async {
-    if (_pendingAlerts.isEmpty) {
-      return;
+  Future<void> _processBroadcastQueue() async {
+    if (_isBroadcasting || _broadcastQueue.isEmpty || !_state.bluetoothSupported) return;
+
+    _isBroadcasting = true;
+    final alert = _broadcastQueue.removeFirst();
+    _updateState(_state.copyWith(queuedAlertCount: _broadcastQueue.length));
+
+    try {
+      await _publishAlert(alert, statusMessage: 'Broadcasting ${alert.type.label} alert');
+      debugPrint('MeshManager: published alert ${alert.type.label} hop=${alert.hopCount}');
+      // Hold the payload in the air long enough for nearby scanners to catch it.
+      await Future.delayed(const Duration(seconds: 6));
+    } catch (e) {
+      debugPrint('MeshManager: broadcast error: $e');
+    } finally {
+      _isBroadcasting = false;
     }
 
-    final alertsToSend = List<AlertMessage>.from(_pendingAlerts);
-    _pendingAlerts.clear();
+    // Restore heartbeat payload so this device stays discoverable after broadcasting
+    try {
+      await _advertiser.updatePayload([0]);
+    } catch (_) {}
 
-    _updateState(
-      _state.copyWith(
-        queuedAlertCount: 0,
-        statusMessage: 'Forwarding queued alerts to nearby peers',
-      ),
-    );
-
-    for (final alert in alertsToSend) {
-      await _publishAlert(
-        alert,
-        statusMessage: 'Forwarded queued ${alert.type.label} alert',
-      );
-      // Wait for the alert to broadcast for a few seconds before the next one overwrites it
-      await Future.delayed(const Duration(seconds: 4));
-    }
+    unawaited(_processBroadcastQueue());
   }
 
-  Future<void> _publishAlert(
+  Future<bool> _publishAlert(
     AlertMessage alert, {
     required String statusMessage,
   }) async {
-    final payload = utf8.encode(jsonEncode(alert.toBlePacket()));
+    final payload = _encodeAlertBinary(alert);
     final didAdvertise = await _advertiser.updatePayload(payload);
 
     _updateState(
       _state.copyWith(
         isAdvertising: didAdvertise,
         lastActivityAt: DateTime.now(),
-        queuedAlertCount: _pendingAlerts.length,
+        queuedAlertCount: _broadcastQueue.length,
         statusMessage: didAdvertise
             ? statusMessage
             : 'Alert stored locally, but broadcasting is unavailable',
       ),
     );
+    return didAdvertise;
+  }
+
+  List<int> _encodeAlertBinary(AlertMessage alert) {
+    final bd = ByteData(19);
+    // Use the raw msgId integer if it was decoded from BLE (hash_msg_NNNN),
+    // otherwise hash the original UUID. This keeps the ID stable across hops.
+    final int msgIdHash;
+    final existingMatch = RegExp(r'^hash_msg_(\d+)$').firstMatch(alert.messageId);
+    if (existingMatch != null) {
+      msgIdHash = int.parse(existingMatch.group(1)!) & 0xFFFF;
+    } else {
+      msgIdHash = alert.messageId.hashCode & 0xFFFF;
+    }
+
+    final int senderIdHash;
+    final existingSenderMatch = RegExp(r'^hash_snd_(\d+)$').firstMatch(alert.senderId);
+    if (existingSenderMatch != null) {
+      senderIdHash = int.parse(existingSenderMatch.group(1)!) & 0xFFFF;
+    } else {
+      senderIdHash = alert.senderId.hashCode & 0xFFFF;
+    }
+
+    bd.setUint16(0, msgIdHash, Endian.little);
+    bd.setUint16(2, senderIdHash, Endian.little);
+    bd.setUint8(4, alert.type.index);
+    bd.setUint8(5, alert.hopCount);
+    bd.setUint8(6, alert.descriptionCode ?? 255);
+    bd.setFloat32(7, alert.latitude, Endian.little);
+    bd.setFloat32(11, alert.longitude, Endian.little);
+    bd.setUint32(15, (alert.timestamp ~/ 1000) & 0xFFFFFFFF, Endian.little);
+    return bd.buffer.asUint8List();
   }
 
   AlertMessage? _decodePayload(List<int>? bytes) {
-    if (bytes == null || bytes.isEmpty) {
+    if (bytes == null || bytes.length < 19) {
       return null;
     }
 
     try {
-      final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      final alert = AlertMessage.fromJson(decoded);
-      if (alert.senderId == _localSenderId) {
+      final bd = ByteData.sublistView(Uint8List.fromList(bytes));
+      final msgIdHash = bd.getUint16(0, Endian.little);
+      final sIdHash = bd.getUint16(2, Endian.little);
+      final typeIndex = bd.getUint8(4);
+      final hopCount = bd.getUint8(5);
+      final descCodeRaw = bd.getUint8(6);
+      final lat = bd.getFloat32(7, Endian.little);
+      final lng = bd.getFloat32(11, Endian.little);
+      final ts = bd.getUint32(15, Endian.little) * 1000;
+
+      if (sIdHash == (_localSenderId.hashCode & 0xFFFF)) {
         return null;
       }
-      return alert;
+
+      return AlertMessage(
+        messageId: 'hash_msg_$msgIdHash',
+        type: AlertType.values[typeIndex % AlertType.values.length],
+        latitude: lat,
+        longitude: lng,
+        timestamp: ts,
+        hopCount: hopCount,
+        descriptionCode: descCodeRaw == 255 ? null : descCodeRaw,
+        senderId: 'hash_snd_$sIdHash',
+      );
     } catch (_) {
       return null;
     }

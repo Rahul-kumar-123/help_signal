@@ -30,11 +30,13 @@ class HomeScreen extends StatelessWidget {
                   controller.refreshMesh();
                 },
               ),
-              SOSArea(
-                isSending: controller.isSendingAlert,
-                onTrigger: () {
-                  _sendAlert(context, controller, AlertType.sos);
-                },
+              Center(
+                child: SOSArea(
+                  isSending: controller.isSendingAlert,
+                  onTrigger: () {
+                    _sendAlert(context, controller, AlertType.sos);
+                  },
+                ),
               ),
               const SizedBox(height: 24),
               _locationBanner(controller),
