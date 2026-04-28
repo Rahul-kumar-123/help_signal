@@ -11,6 +11,7 @@ class BLEManager {
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   StreamSubscription<List<ScanResult>>? _continuousScanSubscription;
   List<ScanResult> discoveredDevices = [];
+  final Map<String, DateTime> _deviceLastSeen = {};
   bool _isContinuousScanning = false;
   bool _stopRequested = false;
 
@@ -51,6 +52,7 @@ class BLEManager {
     VoidCallback? onUpdate,
   }) async {
     discoveredDevices.clear();
+    _deviceLastSeen.clear();
     onUpdate?.call();
 
     if (FlutterBluePlus.isScanningNow) {
@@ -178,6 +180,8 @@ class BLEManager {
           discoveredDevices[existingIndex] = device;
           listUpdated = true;
         }
+        
+        _deviceLastSeen[device.device.remoteId.str] = DateTime.now();
       }
 
       if (listUpdated) {
@@ -200,6 +204,20 @@ class BLEManager {
         // Wait for this scan window to complete
         await FlutterBluePlus.isScanning.where((val) => val == false).first;
 
+        // Purge devices not seen recently (older than scan + pause duration + buffer)
+        final now = DateTime.now();
+        final staleThreshold = scanDuration + pauseDuration + const Duration(seconds: 5);
+        final initialCount = discoveredDevices.length;
+        
+        discoveredDevices.removeWhere((d) {
+          final lastSeen = _deviceLastSeen[d.device.remoteId.str];
+          return lastSeen == null || now.difference(lastSeen) > staleThreshold;
+        });
+        
+        if (discoveredDevices.length != initialCount) {
+          debugPrint('Purged ${initialCount - discoveredDevices.length} stale device(s).');
+        }
+
         // Always fire onUpdate after each cycle so the UI reflects current reality
         onUpdate?.call();
 
@@ -213,8 +231,12 @@ class BLEManager {
 
       if (_stopRequested) break;
 
-      // Pause between scan cycles
-      await Future.delayed(pauseDuration);
+      // Pause between scan cycles (interruptible)
+      final pauseSteps = pauseDuration.inMilliseconds ~/ 100;
+      for (int i = 0; i < pauseSteps; i++) {
+        if (_stopRequested) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
     }
 
     // Cleanup
@@ -224,8 +246,6 @@ class BLEManager {
     debugPrint('Continuous scan loop stopped.');
   }
 
-  /// Stops the continuous scan loop. The current scan cycle will finish
-  /// and the loop will exit gracefully.
   Future<void> stopContinuousScan() async {
     if (!_isContinuousScanning) return;
 
@@ -236,6 +256,11 @@ class BLEManager {
       try {
         await FlutterBluePlus.stopScan();
       } catch (_) {}
+    }
+
+    // Wait for the loop to gracefully exit before returning
+    while (_isContinuousScanning) {
+      await Future.delayed(const Duration(milliseconds: 50));
     }
   }
 

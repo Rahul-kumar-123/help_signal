@@ -119,15 +119,34 @@ class MeshManager {
       } else if (state == BluetoothAdapterState.on) {
         if (!_state.bluetoothSupported) {
           _updateState(_state.copyWith(bluetoothSupported: true));
+          
+          // Bluetooth was just enabled, restart our scanners
+          unawaited(() async {
+            try {
+              await refreshNearbyDevices();
+              startContinuousDiscovery();
+              if (_broadcastQueue.isNotEmpty) {
+                unawaited(_processBroadcastQueue());
+              }
+            } catch (_) {}
+          }());
         }
       }
     });
 
     try {
       await _scanner.initializeBluetooth();
-      await _advertiser.initialize();
-      // Broadcast a 1-byte payload so we are discoverable (Heartbeat). Android often drops 0-byte manufacturer payloads.
-      await _advertiser.updatePayload([0]);
+      
+      // Try to initialize the advertiser, but don't fail the whole mesh if it's unsupported
+      try {
+        await _advertiser.initialize();
+        // Broadcast a 1-byte payload so we are discoverable (Heartbeat). Android often drops 0-byte manufacturer payloads.
+        await _advertiser.updatePayload([0]);
+      } catch (e) {
+        debugPrint('MeshManager: Advertising not supported or failed to start: $e');
+        // We can still scan even if we can't advertise
+      }
+
       // Do an initial one-shot scan to populate immediately
       await refreshNearbyDevices();
       // Then start continuous scanning
@@ -215,7 +234,13 @@ class MeshManager {
       if (diff > const Duration(seconds: 30)) {
         debugPrint('MeshManager: Watchdog triggered, restarting scan loop');
         _scanner.discoveredDevices.clear();
-        unawaited(refreshNearbyDevices());
+        unawaited(() async {
+          await refreshNearbyDevices();
+          // Ensure we restart continuous discovery after the watchdog's targeted scan
+          if (_state.bluetoothSupported) {
+            startContinuousDiscovery();
+          }
+        }());
       }
     });
 
@@ -281,10 +306,10 @@ class MeshManager {
     // Reject if max hops exceeded
     if (alert.hopCount > maxHopCount) return;
 
-    // Deduplicate: if we've already processed this exact (messageId, hopCount)
-    // pair, skip. Using hopCount in the key lets the same alert travel through
-    // multiple hops without being silently dropped at an intermediate node.
-    final dedupKey = '${alert.messageId}:${alert.hopCount}';
+    // Deduplicate: if we've already processed this exact messageId, skip.
+    // We strictly use ONLY the messageId to prevent broadcast storms where
+    // nodes bounce the same message back and forth with incrementing hop counts.
+    final dedupKey = alert.messageId;
     if (_processedMessages.contains(dedupKey)) return;
     _processedMessages.add(dedupKey);
 
@@ -341,6 +366,11 @@ class MeshManager {
 
       unawaited(receiveAlert(alert));
     }
+
+    // If there are queued alerts waiting for peers, process them now
+    if (_broadcastQueue.isNotEmpty) {
+      unawaited(_processBroadcastQueue());
+    }
   }
 
   void _enqueueBroadcast(AlertMessage alert, String statusMessage) {
@@ -359,6 +389,13 @@ class MeshManager {
 
   Future<void> _processBroadcastQueue() async {
     if (_isBroadcasting || _broadcastQueue.isEmpty || !_state.bluetoothSupported) return;
+
+    if (_scanner.discoveredDevices.isEmpty) {
+      _updateState(_state.copyWith(
+        statusMessage: 'Alert queued, waiting for nearby peers to broadcast',
+      ));
+      return;
+    }
 
     _isBroadcasting = true;
     final alert = _broadcastQueue.removeFirst();

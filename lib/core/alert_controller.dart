@@ -14,7 +14,7 @@ class AlertController extends ChangeNotifier {
     Duration startupStorageTimeout = const Duration(seconds: 4),
     Duration startupLocationTimeout = const Duration(seconds: 6),
     Duration refreshLocationTimeout = const Duration(seconds: 8),
-    Duration meshInitializationTimeout = const Duration(seconds: 8),
+    Duration meshInitializationTimeout = const Duration(seconds: 30),
   }) : _alertManager = alertManager ?? AlertManager(),
        _meshManager = meshManager ?? MeshManager(),
        _locationManager = locationManager ?? LocationManager(),
