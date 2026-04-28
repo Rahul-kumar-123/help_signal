@@ -6,6 +6,8 @@ import 'package:help_signal/core/alert_controller.dart';
 import 'package:help_signal/core/alert_manager.dart';
 import 'package:help_signal/core/location_manager.dart';
 import 'package:help_signal/core/mesh_manager.dart';
+import 'package:help_signal/services/app_foreground_service.dart';
+import 'package:help_signal/services/offline_map_cache_service.dart';
 import 'package:help_signal/utilities/alert_data.dart';
 
 void main() {
@@ -16,6 +18,8 @@ void main() {
       alertManager: alertManager,
       meshManager: meshManager,
       locationManager: _FakeLocationManager(),
+      offlineMapCacheService: _FakeOfflineMapCacheService(),
+      foregroundService: _FakeAppForegroundService(),
     );
 
     final result = await controller.sendAlert(AlertType.sos);
@@ -30,6 +34,8 @@ void main() {
       alertManager: _HangingAlertManager(),
       meshManager: _HangingMeshManager(),
       locationManager: _HangingLocationManager(),
+      offlineMapCacheService: _FakeOfflineMapCacheService(),
+      foregroundService: _FakeAppForegroundService(),
       startupStorageTimeout: const Duration(milliseconds: 10),
       startupLocationTimeout: const Duration(milliseconds: 10),
       meshInitializationTimeout: const Duration(milliseconds: 10),
@@ -50,6 +56,8 @@ void main() {
         ),
         meshManager: _FakeMeshManager(),
         locationManager: _HangingLocationManager(),
+        offlineMapCacheService: _FakeOfflineMapCacheService(),
+        foregroundService: _FakeAppForegroundService(),
         refreshLocationTimeout: const Duration(milliseconds: 10),
       );
 
@@ -59,6 +67,44 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('refreshLocation starts offline map caching in the background', () async {
+    final offlineMapCacheService = _FakeOfflineMapCacheService();
+    final controller = AlertController(
+      alertManager: _FakeAlertManager(),
+      meshManager: _FakeMeshManager(),
+      locationManager: _FakeLocationManager(),
+      offlineMapCacheService: offlineMapCacheService,
+      foregroundService: _FakeAppForegroundService(),
+    );
+
+    final location = await controller.refreshLocation();
+
+    expect(location, const LatLng(12.9716, 77.5946));
+    expect(
+      offlineMapCacheService.cachedLocations,
+      contains(const LatLng(12.9716, 77.5946)),
+    );
+    controller.dispose();
+  });
+
+  test('initialize starts the Android foreground service bridge', () async {
+    final foregroundService = _FakeAppForegroundService();
+    final controller = AlertController(
+      alertManager: _FakeAlertManager(),
+      meshManager: _FakeMeshManager(),
+      locationManager: _FakeLocationManager(),
+      offlineMapCacheService: _FakeOfflineMapCacheService(),
+      foregroundService: foregroundService,
+    );
+
+    await controller.initialize();
+
+    expect(foregroundService.startCalls, 1);
+    expect(foregroundService.lastTitle, isNotEmpty);
+    expect(foregroundService.lastMessage, isNotEmpty);
+    controller.dispose();
+  });
 }
 
 class _FakeAlertManager extends AlertManager {
@@ -126,5 +172,50 @@ class _HangingMeshManager extends MeshManager {
     PendingAlertsPersistenceHandler? onPendingAlertsChanged,
   }) {
     return Completer<void>().future;
+  }
+}
+
+class _FakeOfflineMapCacheService extends OfflineMapCacheService {
+  final List<LatLng> cachedLocations = <LatLng>[];
+
+  @override
+  Future<void> cacheAreaAround(LatLng center) async {
+    cachedLocations.add(center);
+  }
+
+  @override
+  void dispose() {}
+}
+
+class _FakeAppForegroundService implements AppForegroundService {
+  int startCalls = 0;
+  int updateCalls = 0;
+  int stopCalls = 0;
+  String? lastTitle;
+  String? lastMessage;
+
+  @override
+  Future<void> start({
+    required String title,
+    required String message,
+  }) async {
+    startCalls += 1;
+    lastTitle = title;
+    lastMessage = message;
+  }
+
+  @override
+  Future<void> update({
+    required String title,
+    required String message,
+  }) async {
+    updateCalls += 1;
+    lastTitle = title;
+    lastMessage = message;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls += 1;
   }
 }

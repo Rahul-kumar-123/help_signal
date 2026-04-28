@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import '../services/app_foreground_service.dart';
+import '../services/offline_map_cache_service.dart';
 import '../utilities/alert_data.dart';
 import 'alert_manager.dart';
 import 'location_manager.dart';
@@ -11,6 +13,8 @@ class AlertController extends ChangeNotifier {
     AlertManager? alertManager,
     MeshManager? meshManager,
     LocationManager? locationManager,
+    OfflineMapCacheService? offlineMapCacheService,
+    AppForegroundService? foregroundService,
     Duration startupStorageTimeout = const Duration(seconds: 4),
     Duration startupLocationTimeout = const Duration(seconds: 6),
     Duration refreshLocationTimeout = const Duration(seconds: 8),
@@ -18,6 +22,10 @@ class AlertController extends ChangeNotifier {
   }) : _alertManager = alertManager ?? AlertManager(),
        _meshManager = meshManager ?? MeshManager(),
        _locationManager = locationManager ?? LocationManager(),
+       _offlineMapCacheService =
+           offlineMapCacheService ?? OfflineMapCacheService(),
+       _foregroundService =
+           foregroundService ?? AndroidAppForegroundService(),
        _startupStorageTimeout = startupStorageTimeout,
        _startupLocationTimeout = startupLocationTimeout,
        _refreshLocationTimeout = refreshLocationTimeout,
@@ -26,6 +34,8 @@ class AlertController extends ChangeNotifier {
   final AlertManager _alertManager;
   final MeshManager _meshManager;
   final LocationManager _locationManager;
+  final OfflineMapCacheService _offlineMapCacheService;
+  final AppForegroundService _foregroundService;
   final Duration _startupStorageTimeout;
   final Duration _startupLocationTimeout;
   final Duration _refreshLocationTimeout;
@@ -37,6 +47,7 @@ class AlertController extends ChangeNotifier {
   LatLng? _currentLocation;
   String? _lastError;
   MeshNetworkState _meshState = const MeshNetworkState();
+  OfflineMapCacheState _offlineMapCacheState = const OfflineMapCacheState();
 
   List<AlertMessage> get alerts => _alertManager.alerts;
   bool get isInitializing => _isInitializing;
@@ -45,9 +56,13 @@ class AlertController extends ChangeNotifier {
       _currentLocation ?? _alertManager.lastKnownLocation;
   String? get lastError => _lastError;
   MeshNetworkState get meshState => _meshState;
+  OfflineMapCacheState get offlineMapCacheState => _offlineMapCacheState;
   String get deviceId => _alertManager.deviceId;
 
   Future<void> initialize() async {
+    _offlineMapCacheService.bind(_handleOfflineMapCacheStateChanged);
+    unawaited(_syncForegroundService(forceStart: true));
+
     try {
       await _alertManager.initialize().timeout(_startupStorageTimeout);
       _currentLocation = _alertManager.lastKnownLocation;
@@ -64,6 +79,13 @@ class AlertController extends ChangeNotifier {
 
     if (_isDisposed) {
       return;
+    }
+
+    unawaited(_syncForegroundService());
+
+    final initialLocation = currentLocation;
+    if (initialLocation != null) {
+      unawaited(_offlineMapCacheService.cacheAreaAround(initialLocation));
     }
 
     unawaited(_warmUpLocation());
@@ -122,6 +144,7 @@ class AlertController extends ChangeNotifier {
     if (location != null) {
       _currentLocation = location;
       await _alertManager.updateLastKnownLocation(location);
+      unawaited(_offlineMapCacheService.cacheAreaAround(location));
       _notifySafely();
     }
     return location;
@@ -168,6 +191,9 @@ class AlertController extends ChangeNotifier {
     _isDisposed = true;
     _meshManager.stopContinuousDiscovery();
     _meshManager.dispose();
+    _offlineMapCacheService.unbind(_handleOfflineMapCacheStateChanged);
+    _offlineMapCacheService.dispose();
+    unawaited(_foregroundService.stop());
     super.dispose();
   }
 
@@ -181,6 +207,12 @@ class AlertController extends ChangeNotifier {
 
   void _handleMeshStateChanged(MeshNetworkState state) {
     _meshState = state;
+    unawaited(_syncForegroundService());
+    _notifySafely();
+  }
+
+  void _handleOfflineMapCacheStateChanged(OfflineMapCacheState state) {
+    _offlineMapCacheState = state;
     _notifySafely();
   }
 
@@ -198,6 +230,7 @@ class AlertController extends ChangeNotifier {
 
     _currentLocation = location;
     await _alertManager.updateLastKnownLocation(location);
+    unawaited(_offlineMapCacheService.cacheAreaAround(location));
     _notifySafely();
   }
 
@@ -220,6 +253,7 @@ class AlertController extends ChangeNotifier {
         statusMessage:
             'Mesh startup is taking longer than expected. Local alerts are still available.',
       );
+      unawaited(_syncForegroundService());
       _notifySafely();
     } catch (error) {
       _recordError(
@@ -232,8 +266,55 @@ class AlertController extends ChangeNotifier {
         isAdvertising: false,
         statusMessage: 'Mesh services are unavailable right now.',
       );
+      unawaited(_syncForegroundService());
       _notifySafely();
     }
+  }
+
+  Future<void> _syncForegroundService({bool forceStart = false}) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    final title = _isInitializing ? 'HelpSignal preparing' : 'HelpSignal active';
+    final message = _buildForegroundServiceMessage();
+
+    try {
+      if (forceStart) {
+        await _foregroundService.start(title: title, message: message);
+        return;
+      }
+
+      await _foregroundService.update(title: title, message: message);
+    } catch (_) {
+      // The foreground service is an Android-only resilience feature.
+      // The app should keep working even if it cannot be started.
+    }
+  }
+
+  String _buildForegroundServiceMessage() {
+    if (_isInitializing) {
+      return 'Preparing mesh discovery, local alerts, and offline tools.';
+    }
+
+    final parts = <String>[];
+    if (_meshState.nearbyDeviceCount > 0) {
+      parts.add('${_meshState.nearbyDeviceCount} nearby node(s)');
+    }
+    if (_meshState.queuedAlertCount > 0) {
+      parts.add('${_meshState.queuedAlertCount} queued alert(s)');
+    }
+
+    final status = _meshState.statusMessage.trim();
+    if (status.isNotEmpty) {
+      parts.add(status);
+    }
+
+    if (parts.isEmpty) {
+      return 'Mesh discovery stays active in the background.';
+    }
+
+    return parts.join(' • ');
   }
 
   Future<LatLng?> _readCurrentLocation({

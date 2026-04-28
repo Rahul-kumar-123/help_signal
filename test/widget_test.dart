@@ -6,6 +6,8 @@ import 'package:help_signal/core/alert_manager.dart';
 import 'package:help_signal/core/location_manager.dart';
 import 'package:help_signal/core/mesh_manager.dart';
 import 'package:help_signal/main.dart';
+import 'package:help_signal/services/app_foreground_service.dart';
+import 'package:help_signal/services/offline_map_cache_service.dart';
 import 'package:help_signal/utilities/alert_data.dart';
 
 void main() {
@@ -16,6 +18,8 @@ void main() {
       alertManager: _WidgetTestAlertManager(),
       meshManager: _WidgetTestMeshManager(),
       locationManager: _WidgetTestLocationManager(),
+      offlineMapCacheService: _WidgetTestOfflineMapCacheService(),
+      foregroundService: _WidgetTestForegroundService(),
     );
 
     await tester.pumpWidget(MyApp(controller: controller));
@@ -57,4 +61,29 @@ class _WidgetTestMeshManager extends MeshManager {
 class _WidgetTestLocationManager extends LocationManager {
   @override
   Future<LatLng?> getCurrentLocation() async => const LatLng(12.9716, 77.5946);
+}
+
+class _WidgetTestOfflineMapCacheService extends OfflineMapCacheService {
+  @override
+  Future<void> cacheAreaAround(LatLng center) async {}
+
+  @override
+  void dispose() {}
+}
+
+class _WidgetTestForegroundService implements AppForegroundService {
+  @override
+  Future<void> start({
+    required String title,
+    required String message,
+  }) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> update({
+    required String title,
+    required String message,
+  }) async {}
 }

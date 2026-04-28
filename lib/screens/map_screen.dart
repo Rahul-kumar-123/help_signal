@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/alert_controller.dart';
+import '../services/offline_map_cache_service.dart';
 import '../utilities/alert_data.dart';
 import '../utilities/constants.dart';
 
@@ -17,6 +18,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
+  late final TileProvider _tileProvider = createSharedMapTileProvider();
   AlertType activeFilter = AlertType.all;
   LatLng? selectedAlertLocation;
 
@@ -133,18 +135,44 @@ class _MapScreenState extends State<MapScreen> {
               top: 72,
               left: 16,
               right: 16,
-                child: Container(
+              child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.92),
+                  color: Colors.white.withValues(alpha: 0.92),
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: Text(
-                  controller.meshState.statusMessage,
-                  style: const TextStyle(color: Color(0xFF5B403D)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      controller.meshState.statusMessage,
+                      style: const TextStyle(color: Color(0xFF5B403D)),
+                    ),
+                    if (controller
+                        .offlineMapCacheState
+                        .statusMessage
+                        .isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Offline map: ${controller.offlineMapCacheState.statusMessage}',
+                        style: const TextStyle(color: Color(0xFF5B403D)),
+                      ),
+                    ],
+                    if (controller.offlineMapCacheState.isRunning &&
+                        controller.offlineMapCacheState.progress != null) ...[
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: controller.offlineMapCacheState.progress,
+                        backgroundColor: const Color(0xFFF3D6D2),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Color(0xFFD92D20),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -203,16 +231,16 @@ class _MapScreenState extends State<MapScreen> {
             selectedAlertLocation = null;
           });
         },
-            child: Ink(
+        child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: isActive
                 ? alertType.color
-                : Colors.white.withOpacity(0.75),
+                : Colors.white.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 6,
               ),
             ],
@@ -325,9 +353,10 @@ class _MapScreenState extends State<MapScreen> {
       },
     );
   }
-}
 
-TileLayer get openStreetMapLayer => TileLayer(
-  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  userAgentPackageName: 'com.helpsignal',
-);
+  TileLayer get openStreetMapLayer => TileLayer(
+    urlTemplate: kMapTileUrlTemplate,
+    userAgentPackageName: kMapTileUserAgentPackageName,
+    tileProvider: _tileProvider,
+  );
+}
