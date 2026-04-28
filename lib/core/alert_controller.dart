@@ -96,11 +96,11 @@ class AlertController extends ChangeNotifier {
         location: location,
         descriptionCode: descriptionCode,
       );
-      final broadcastSuccess = await _meshManager.broadcastAlert(alert);
+      final broadcastQueued = await _meshManager.broadcastAlert(alert);
       _notifySafely();
-      return broadcastSuccess
-          ? '${type.label} alert saved and broadcast successfully.'
-          : '${type.label} alert saved locally, but Bluetooth broadcast failed.';
+      return broadcastQueued
+          ? '${type.label} alert saved locally and queued for nearby peers.'
+          : '${type.label} alert saved locally and will retry when Bluetooth becomes available.';
     } catch (error) {
       _recordError(error, fallbackMessage: 'Unable to send alert right now.');
       _notifySafely();
@@ -208,6 +208,9 @@ class AlertController extends ChangeNotifier {
             localSenderId: deviceId,
             onAlertReceived: _handleIncomingAlert,
             onStateChanged: _handleMeshStateChanged,
+            restoredProcessedMessageIds: _alertManager.seenMessageIds,
+            restoredPendingAlerts: _alertManager.pendingMeshAlerts,
+            onPendingAlertsChanged: _alertManager.setPendingMeshAlerts,
           )
           .timeout(_meshInitializationTimeout);
     } on TimeoutException {

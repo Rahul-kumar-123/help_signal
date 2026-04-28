@@ -99,8 +99,9 @@ class _FakeMeshManager extends MeshManager {
   int broadcastAlertCalls = 0;
 
   @override
-  Future<void> broadcastAlert(AlertMessage alert) async {
+  Future<bool> broadcastAlert(AlertMessage alert) async {
     broadcastAlertCalls += 1;
+    return true;
   }
 }
 
@@ -120,6 +121,9 @@ class _HangingMeshManager extends MeshManager {
     required String localSenderId,
     required MeshAlertHandler onAlertReceived,
     required MeshStateListener onStateChanged,
+    Iterable<String> restoredProcessedMessageIds = const <String>[],
+    List<AlertMessage> restoredPendingAlerts = const <AlertMessage>[],
+    PendingAlertsPersistenceHandler? onPendingAlertsChanged,
   }) {
     return Completer<void>().future;
   }

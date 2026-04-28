@@ -49,14 +49,15 @@ class _MapScreenState extends State<MapScreen> {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final userLocation = controller.currentLocation ?? kFallbackMapCenter;
+        final actualUserLocation = controller.currentLocation;
+        final mapCenter = actualUserLocation ?? kFallbackMapCenter;
         final alerts = controller.alertsFor(activeFilter);
 
         return Stack(
           children: [
             FlutterMap(
               options: MapOptions(
-                initialCenter: widget.initialLocation ?? userLocation,
+                initialCenter: widget.initialLocation ?? mapCenter,
                 initialZoom: 13,
               ),
               mapController: _mapController,
@@ -64,16 +65,17 @@ class _MapScreenState extends State<MapScreen> {
                 openStreetMapLayer,
                 MarkerLayer(
                   markers: [
-                    Marker(
-                      point: userLocation,
-                      width: 44,
-                      height: 44,
-                      child: const Icon(
-                        Icons.my_location,
-                        color: Colors.black,
-                        size: 30,
+                    if (actualUserLocation != null)
+                      Marker(
+                        point: actualUserLocation,
+                        width: 44,
+                        height: 44,
+                        child: const Icon(
+                          Icons.my_location,
+                          color: Colors.black,
+                          size: 30,
+                        ),
                       ),
-                    ),
                     ...alerts.map(
                       (alert) => Marker(
                         point: alert.location,
@@ -98,9 +100,10 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 PolylineLayer(
                   polylines: [
-                    if (selectedAlertLocation != null)
+                    if (actualUserLocation != null &&
+                        selectedAlertLocation != null)
                       Polyline(
-                        points: [userLocation, selectedAlertLocation!],
+                        points: [actualUserLocation, selectedAlertLocation!],
                         color: Colors.red,
                         strokeWidth: 3,
                       ),
@@ -157,7 +160,7 @@ class _MapScreenState extends State<MapScreen> {
                       if (!mounted) {
                         return;
                       }
-                      _mapController.move(location ?? userLocation, 13);
+                      _mapController.move(location ?? mapCenter, 13);
                     },
                     backgroundColor: Colors.white,
                     child: const Icon(
@@ -173,7 +176,7 @@ class _MapScreenState extends State<MapScreen> {
                       setState(() {
                         selectedAlertLocation = null;
                       });
-                      _mapController.move(userLocation, 13);
+                      _mapController.move(mapCenter, 13);
                     },
                     child: const Icon(Icons.my_location, color: Colors.white),
                   ),

@@ -6,11 +6,7 @@ class LocationManager {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        await Geolocator.openLocationSettings();
-        serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) {
-          return _getLastKnownLocation();
-        }
+        return _getLastKnownLocation();
       }
 
       var permission = await Geolocator.checkPermission();

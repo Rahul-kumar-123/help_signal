@@ -10,12 +10,14 @@ import '../utilities/alert_data.dart';
 class StorageSnapshot {
   final String? deviceId;
   final List<AlertMessage> alerts;
+  final List<AlertMessage> pendingMeshAlerts;
   final Set<String> seenMessageIds;
   final LatLng? lastKnownLocation;
 
   const StorageSnapshot({
     this.deviceId,
     this.alerts = const [],
+    this.pendingMeshAlerts = const [],
     this.seenMessageIds = const <String>{},
     this.lastKnownLocation,
   });
@@ -23,6 +25,7 @@ class StorageSnapshot {
   StorageSnapshot copyWith({
     String? deviceId,
     List<AlertMessage>? alerts,
+    List<AlertMessage>? pendingMeshAlerts,
     Set<String>? seenMessageIds,
     LatLng? lastKnownLocation,
     bool clearLastKnownLocation = false,
@@ -30,6 +33,7 @@ class StorageSnapshot {
     return StorageSnapshot(
       deviceId: deviceId ?? this.deviceId,
       alerts: alerts ?? this.alerts,
+      pendingMeshAlerts: pendingMeshAlerts ?? this.pendingMeshAlerts,
       seenMessageIds: seenMessageIds ?? this.seenMessageIds,
       lastKnownLocation: clearLastKnownLocation
           ? null
@@ -41,6 +45,9 @@ class StorageSnapshot {
     return {
       'deviceId': deviceId,
       'alerts': alerts.map((alert) => alert.toJson()).toList(),
+      'pendingMeshAlerts': pendingMeshAlerts
+          .map((alert) => alert.toJson())
+          .toList(),
       'seenMessageIds': seenMessageIds.toList(),
       'lastKnownLocation': lastKnownLocation == null
           ? null
@@ -55,6 +62,10 @@ class StorageSnapshot {
     final alertJson = (json['alerts'] as List<dynamic>? ?? const []).map(
       (item) => Map<String, dynamic>.from(item as Map),
     );
+    final pendingMeshAlertJson =
+        (json['pendingMeshAlerts'] as List<dynamic>? ?? const []).map(
+          (item) => Map<String, dynamic>.from(item as Map),
+        );
     final rawLocationJson = json['lastKnownLocation'];
     final locationJson = rawLocationJson == null
         ? null
@@ -63,6 +74,9 @@ class StorageSnapshot {
     return StorageSnapshot(
       deviceId: json['deviceId'] as String?,
       alerts: alertJson.map(AlertMessage.fromJson).toList(),
+      pendingMeshAlerts: pendingMeshAlertJson
+          .map(AlertMessage.fromJson)
+          .toList(),
       seenMessageIds: (json['seenMessageIds'] as List<dynamic>? ?? const [])
           .map((id) => id.toString())
           .toSet(),

@@ -28,9 +28,24 @@ class BLEManager {
         Permission.location,
       ].request();
 
-      final allGranted = statuses.values.every((status) => status.isGranted);
-      if (!allGranted) {
-        throw StateError('Essential permissions were denied.');
+      final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+      final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+      final locationGranted = statuses[Permission.location]?.isGranted ?? false;
+      final locationRequired = _requiresLocationForAndroidBleScan;
+
+      if (!scanGranted || !connectGranted || (locationRequired && !locationGranted)) {
+        throw StateError(
+          locationRequired
+              ? 'Bluetooth scan permissions or required location access were denied.'
+              : 'Bluetooth scan permissions were denied.',
+        );
+      }
+
+      if (!(statuses[Permission.bluetoothAdvertise]?.isGranted ?? false)) {
+        debugPrint(
+          'BLEManager: advertise permission not granted; scanning can continue, '
+          'but this device may not be able to relay alerts.',
+        );
       }
     }
 
@@ -91,7 +106,7 @@ class BLEManager {
         if (existingIndex == -1) {
           discoveredDevices.add(device);
           listUpdated = true;
-        } else if (discoveredDevices[existingIndex].rssi != device.rssi) {
+        } else {
           discoveredDevices[existingIndex] = device;
           listUpdated = true;
         }
@@ -105,7 +120,12 @@ class BLEManager {
 
     try {
       debugPrint('Starting scan...');
-      await FlutterBluePlus.startScan(timeout: timeout);
+      await FlutterBluePlus.startScan(
+        timeout: timeout,
+        continuousUpdates: true,
+        androidUsesFineLocation: _requiresLocationForAndroidBleScan,
+        androidCheckLocationServices: _requiresLocationForAndroidBleScan,
+      );
       await FlutterBluePlus.isScanning.where((val) => val == false).first;
     } catch (error) {
       debugPrint('Failed to start scan: $error');
@@ -199,7 +219,12 @@ class BLEManager {
 
         debugPrint(
             'Continuous scan cycle: scanning for ${scanDuration.inSeconds}s...');
-        await FlutterBluePlus.startScan(timeout: scanDuration);
+        await FlutterBluePlus.startScan(
+          timeout: scanDuration,
+          continuousUpdates: true,
+          androidUsesFineLocation: _requiresLocationForAndroidBleScan,
+          androidCheckLocationServices: _requiresLocationForAndroidBleScan,
+        );
 
         // Wait for this scan window to complete
         await FlutterBluePlus.isScanning.where((val) => val == false).first;
@@ -270,5 +295,17 @@ class BLEManager {
     _continuousScanSubscription = null;
     _adapterStateSubscription?.cancel();
     _adapterStateSubscription = null;
+  }
+
+  bool get _requiresLocationForAndroidBleScan {
+    if (kIsWeb || !Platform.isAndroid) {
+      return false;
+    }
+
+    final sdkMatch = RegExp(r'SDK\s+(\d+)').firstMatch(
+      Platform.operatingSystemVersion,
+    );
+    final sdkVersion = sdkMatch == null ? null : int.tryParse(sdkMatch.group(1)!);
+    return sdkVersion != null && sdkVersion <= 30;
   }
 }

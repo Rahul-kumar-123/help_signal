@@ -59,18 +59,22 @@ class MeshNetworkState {
 
 typedef MeshAlertHandler = Future<bool> Function(AlertMessage alert);
 typedef MeshStateListener = void Function(MeshNetworkState state);
+typedef PendingAlertsPersistenceHandler =
+    Future<void> Function(List<AlertMessage> pendingAlerts);
 
 class MeshManager {
   MeshManager({
     BLEManager? scanner,
     SimpleBleAdvertiser? advertiser,
     this.maxHopCount = kMaxMeshHopCount,
+    this.broadcastHoldDuration = const Duration(seconds: 6),
   }) : _scanner = scanner ?? BLEManager(),
        _advertiser = advertiser ?? SimpleBleAdvertiser();
 
   final BLEManager _scanner;
   final SimpleBleAdvertiser _advertiser;
   final int maxHopCount;
+  final Duration broadcastHoldDuration;
 
   final Set<String> _processedMessages = {};
   final Queue<AlertMessage> _broadcastQueue = Queue<AlertMessage>();
@@ -79,9 +83,11 @@ class MeshManager {
   Timer? _watchdogTimer;
   MeshAlertHandler? _onAlertReceived;
   MeshStateListener? _onStateChanged;
+  PendingAlertsPersistenceHandler? _persistPendingAlerts;
   String _localSenderId = '';
   bool _continuousDiscoveryActive = false;
   bool _isBroadcasting = false;
+  int _continuousDiscoverySession = 0;
 
   MeshNetworkState get state => _state;
 
@@ -89,10 +95,19 @@ class MeshManager {
     required String localSenderId,
     required MeshAlertHandler onAlertReceived,
     required MeshStateListener onStateChanged,
+    Iterable<String> restoredProcessedMessageIds = const <String>[],
+    List<AlertMessage> restoredPendingAlerts = const <AlertMessage>[],
+    PendingAlertsPersistenceHandler? onPendingAlertsChanged,
   }) async {
     _localSenderId = localSenderId;
     _onAlertReceived = onAlertReceived;
     _onStateChanged = onStateChanged;
+    _persistPendingAlerts = onPendingAlertsChanged;
+
+    _processedMessages
+      ..clear()
+      ..addAll(restoredProcessedMessageIds);
+    _restorePendingQueue(restoredPendingAlerts);
 
     final isSupported = await _safeBluetoothSupportedCheck();
     _updateState(
@@ -213,6 +228,7 @@ class MeshManager {
       return;
     }
 
+    final sessionId = ++_continuousDiscoverySession;
     _continuousDiscoveryActive = true;
     debugPrint('MeshManager: starting continuous discovery');
 
@@ -269,6 +285,10 @@ class MeshManager {
         }
       },
     ).then((_) {
+      if (sessionId != _continuousDiscoverySession) {
+        return;
+      }
+
       // Loop exited (stopContinuousScan was called)
       _continuousDiscoveryActive = false;
       _updateState(
@@ -284,6 +304,8 @@ class MeshManager {
   Future<void> stopContinuousDiscovery() async {
     if (!_continuousDiscoveryActive) return;
     debugPrint('MeshManager: stopping continuous discovery');
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
     await _scanner.stopContinuousScan();
     _continuousDiscoveryActive = false;
   }
@@ -313,12 +335,14 @@ class MeshManager {
     if (_processedMessages.contains(dedupKey)) return;
     _processedMessages.add(dedupKey);
 
+    final didStore =
+        await (_onAlertReceived?.call(alert) ?? Future<bool>.value(true));
+    if (!didStore) {
+      return;
+    }
+
     debugPrint('MeshManager: received alert ${alert.type.label} '
         'msgId=${alert.messageId} hop=${alert.hopCount}');
-
-    // Store the alert on this device (may return false if already stored —
-    // that's fine, we still relay it).
-    unawaited(_onAlertReceived?.call(alert));
 
     _updateState(
       _state.copyWith(
@@ -384,6 +408,7 @@ class MeshManager {
        queuedAlertCount: _broadcastQueue.length,
        statusMessage: statusMessage,
     ));
+    _persistPendingQueue();
     unawaited(_processBroadcastQueue());
   }
 
@@ -398,16 +423,37 @@ class MeshManager {
     }
 
     _isBroadcasting = true;
-    final alert = _broadcastQueue.removeFirst();
-    _updateState(_state.copyWith(queuedAlertCount: _broadcastQueue.length));
+    final alert = _broadcastQueue.first;
+    bool didPublish = false;
 
     try {
-      await _publishAlert(alert, statusMessage: 'Broadcasting ${alert.type.label} alert');
-      debugPrint('MeshManager: published alert ${alert.type.label} hop=${alert.hopCount}');
-      // Hold the payload in the air long enough for nearby scanners to catch it.
-      await Future.delayed(const Duration(seconds: 6));
+      didPublish = await _publishAlert(
+        alert,
+        statusMessage: 'Broadcasting ${alert.type.label} alert',
+      );
+      if (didPublish) {
+        _broadcastQueue.removeFirst();
+        _updateState(_state.copyWith(queuedAlertCount: _broadcastQueue.length));
+        _persistPendingQueue();
+        debugPrint('MeshManager: published alert ${alert.type.label} hop=${alert.hopCount}');
+        if (broadcastHoldDuration > Duration.zero) {
+          await Future.delayed(broadcastHoldDuration);
+        }
+      } else {
+        _updateState(_state.copyWith(
+          isAdvertising: false,
+          queuedAlertCount: _broadcastQueue.length,
+          statusMessage:
+              'Nearby peers found, but this device could not advertise the queued alert',
+        ));
+      }
     } catch (e) {
       debugPrint('MeshManager: broadcast error: $e');
+      _updateState(_state.copyWith(
+        isAdvertising: false,
+        queuedAlertCount: _broadcastQueue.length,
+        statusMessage: 'Broadcast failed, alert remains queued for the mesh',
+      ));
     } finally {
       _isBroadcasting = false;
     }
@@ -417,7 +463,9 @@ class MeshManager {
       await _advertiser.updatePayload([0]);
     } catch (_) {}
 
-    unawaited(_processBroadcastQueue());
+    if (didPublish) {
+      unawaited(_processBroadcastQueue());
+    }
   }
 
   Future<bool> _publishAlert(
@@ -442,10 +490,10 @@ class MeshManager {
 
   List<int> _encodeAlertBinary(AlertMessage alert) {
     final bd = ByteData(19);
-    // Use the raw msgId integer if it was decoded from BLE (hash_msg_NNNN),
+    // Use the raw msgId integer if it was decoded from BLE (hash_msg_NNNN...),
     // otherwise hash the original UUID. This keeps the ID stable across hops.
     final int msgIdHash;
-    final existingMatch = RegExp(r'^hash_msg_(\d+)$').firstMatch(alert.messageId);
+    final existingMatch = RegExp(r'^hash_msg_(\d+)').firstMatch(alert.messageId);
     if (existingMatch != null) {
       msgIdHash = int.parse(existingMatch.group(1)!) & 0xFFFF;
     } else {
@@ -492,7 +540,7 @@ class MeshManager {
       }
 
       return AlertMessage(
-        messageId: 'hash_msg_$msgIdHash',
+        messageId: 'hash_msg_${msgIdHash}_ts_${ts}_snd_${sIdHash}',
         type: AlertType.values[typeIndex % AlertType.values.length],
         latitude: lat,
         longitude: lng,
@@ -509,6 +557,38 @@ class MeshManager {
   void _updateState(MeshNetworkState state) {
     _state = state;
     _onStateChanged?.call(_state);
+  }
+
+  void _restorePendingQueue(List<AlertMessage> restoredPendingAlerts) {
+    final mergedQueue = <AlertMessage>[
+      ...restoredPendingAlerts,
+      ..._broadcastQueue,
+    ];
+
+    _broadcastQueue.clear();
+    for (final alert in mergedQueue) {
+      if (_broadcastQueue.any((queued) => queued.messageId == alert.messageId)) {
+        continue;
+      }
+      _broadcastQueue.add(alert);
+      if (_broadcastQueue.length > 20) {
+        _broadcastQueue.removeFirst();
+      }
+    }
+
+    _updateState(_state.copyWith(queuedAlertCount: _broadcastQueue.length));
+    _persistPendingQueue();
+  }
+
+  void _persistPendingQueue() {
+    final persistPendingAlerts = _persistPendingAlerts;
+    if (persistPendingAlerts == null) {
+      return;
+    }
+
+    unawaited(
+      persistPendingAlerts(List<AlertMessage>.from(_broadcastQueue)),
+    );
   }
 
   Future<bool> _safeBluetoothSupportedCheck() async {

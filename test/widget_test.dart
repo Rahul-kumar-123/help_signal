@@ -6,6 +6,7 @@ import 'package:help_signal/core/alert_manager.dart';
 import 'package:help_signal/core/location_manager.dart';
 import 'package:help_signal/core/mesh_manager.dart';
 import 'package:help_signal/main.dart';
+import 'package:help_signal/utilities/alert_data.dart';
 
 void main() {
   testWidgets('HelpSignal shows main navigation tabs', (
@@ -40,6 +41,9 @@ class _WidgetTestMeshManager extends MeshManager {
     required String localSenderId,
     required MeshAlertHandler onAlertReceived,
     required MeshStateListener onStateChanged,
+    Iterable<String> restoredProcessedMessageIds = const <String>[],
+    List<AlertMessage> restoredPendingAlerts = const <AlertMessage>[],
+    PendingAlertsPersistenceHandler? onPendingAlertsChanged,
   }) async {
     onStateChanged(
       const MeshNetworkState(

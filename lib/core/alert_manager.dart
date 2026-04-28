@@ -9,11 +9,15 @@ class AlertManager {
 
   final StorageService _storageService;
   final List<AlertMessage> _alerts = [];
+  final List<AlertMessage> _pendingMeshAlerts = [];
   final Set<String> _seenMessageIds = {};
   String? _deviceId;
   LatLng? _lastKnownLocation;
 
   List<AlertMessage> get alerts => List.unmodifiable(_alerts);
+  List<AlertMessage> get pendingMeshAlerts =>
+      List.unmodifiable(_pendingMeshAlerts);
+  Set<String> get seenMessageIds => Set.unmodifiable(_seenMessageIds);
   String get deviceId => _deviceId ?? 'device-uninitialized';
   LatLng? get lastKnownLocation => _lastKnownLocation;
 
@@ -26,6 +30,10 @@ class AlertManager {
     _alerts
       ..clear()
       ..addAll(snapshot.alerts);
+
+    _pendingMeshAlerts
+      ..clear()
+      ..addAll(_dedupePendingMeshAlerts(snapshot.pendingMeshAlerts));
 
     _alerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
@@ -79,15 +87,36 @@ class AlertManager {
     await _persist();
   }
 
+  Future<void> setPendingMeshAlerts(List<AlertMessage> alerts) async {
+    _pendingMeshAlerts
+      ..clear()
+      ..addAll(_dedupePendingMeshAlerts(alerts));
+    await _persist();
+  }
+
   Future<void> _persist() {
     return _storageService.saveSnapshot(
       StorageSnapshot(
         deviceId: _deviceId,
         alerts: List<AlertMessage>.from(_alerts),
+        pendingMeshAlerts: List<AlertMessage>.from(_pendingMeshAlerts),
         seenMessageIds: Set<String>.from(_seenMessageIds),
         lastKnownLocation: _lastKnownLocation,
       ),
     );
+  }
+
+  List<AlertMessage> _dedupePendingMeshAlerts(Iterable<AlertMessage> alerts) {
+    final uniqueIds = <String>{};
+    final deduped = <AlertMessage>[];
+
+    for (final alert in alerts) {
+      if (uniqueIds.add(alert.messageId)) {
+        deduped.add(alert);
+      }
+    }
+
+    return deduped;
   }
 
   String _generateDeviceId() {
