@@ -45,7 +45,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
             else
               SliverList.separated(
                 itemCount: filteredAlerts.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
                 itemBuilder: (context, i) => Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _alertCard(context, controller, filteredAlerts[i]),
@@ -100,7 +100,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withAlpha(15),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
@@ -127,7 +127,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
             ),
           );
         },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemCount: filters.length,
       ),
     );
@@ -142,7 +142,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
@@ -179,7 +179,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.07),
+            color: Colors.black.withAlpha(18),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),

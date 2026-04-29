@@ -50,7 +50,7 @@ class _StatusAreaState extends State<StatusArea> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.07),
+            color: Colors.black.withAlpha(18),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),

@@ -333,7 +333,7 @@ class ActionCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.65),
+                color: Colors.white.withAlpha(166),
                 shape: BoxShape.circle,
               ),
               child: Icon(type.icon, color: type.color, size: 28),

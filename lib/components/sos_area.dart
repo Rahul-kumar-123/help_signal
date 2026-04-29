@@ -27,7 +27,7 @@ class SOSArea extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFD92D20).withOpacity(0.28),
+                  color: const Color(0xFFD92D20).withAlpha((0.28 * 255).toInt()),
                   blurRadius: 28,
                   offset: const Offset(0, 18),
                 ),
@@ -42,7 +42,7 @@ class SOSArea extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.18),
+                      color: Colors.white.withAlpha((0.18 * 255).toInt()),
                       width: 2.5,
                     ),
                   ),

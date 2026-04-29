@@ -73,6 +73,7 @@ class MeshManager {
 
   final BLEManager _scanner;
   final SimpleBleAdvertiser _advertiser;
+  bool _advertiserAvailable = true;
   final int maxHopCount;
   final Duration broadcastHoldDuration;
 
@@ -155,11 +156,23 @@ class MeshManager {
       // Try to initialize the advertiser, but don't fail the whole mesh if it's unsupported
       try {
         await _advertiser.initialize();
-        // Broadcast a 1-byte payload so we are discoverable (Heartbeat). Android often drops 0-byte manufacturer payloads.
-        await _advertiser.updatePayload([0]);
+        // Broadcast a 1-byte heartbeat so we are discoverable.
+        // Android often drops 0-byte manufacturer payloads.
+        final startedHeartbeat = await _advertiser.updatePayload([0]);
+        if (!startedHeartbeat) {
+          // updatePayload returned false — try an explicit startAdvertising call
+          try {
+            await _advertiser.startAdvertising([0]);
+          } catch (e) {
+            debugPrint('MeshManager: explicit startAdvertising also failed: $e');
+          }
+        }
+        _advertiserAvailable = true;
+        debugPrint('MeshManager: advertiser ready, heartbeat payload set');
       } catch (e) {
         debugPrint('MeshManager: Advertising not supported or failed to start: $e');
-        // We can still scan even if we can't advertise
+        _advertiserAvailable = false;
+        // We can still scan even if we cannot advertise
       }
 
       // Do an initial one-shot scan to populate immediately
@@ -414,7 +427,13 @@ class MeshManager {
 
   Future<void> _processBroadcastQueue() async {
     if (_isBroadcasting || _broadcastQueue.isEmpty || !_state.bluetoothSupported) return;
+    // Also skip if the advertiser is known to be unavailable
+    if (!_advertiserAvailable) {
+      debugPrint('MeshManager: advertiser unavailable, broadcast queue paused');
+      return;
+    }
 
+    // Wait until at least one peer is visible so the payload reaches someone
     if (_scanner.discoveredDevices.isEmpty) {
       _updateState(_state.copyWith(
         statusMessage: 'Alert queued, waiting for nearby peers to broadcast',
@@ -472,19 +491,30 @@ class MeshManager {
     AlertMessage alert, {
     required String statusMessage,
   }) async {
+    // If the advertiser is unavailable, skip advertising and keep alert queued locally
+    if (!_advertiserAvailable) {
+      debugPrint('MeshManager: advertiser unavailable, alert queued locally');
+      _updateState(_state.copyWith(
+        isAdvertising: false,
+        statusMessage: 'Advertiser unavailable, alert queued locally',
+      ));
+      return false;
+    }
+
     final payload = _encodeAlertBinary(alert);
     final didAdvertise = await _advertiser.updatePayload(payload);
+    if (!didAdvertise) {
+      debugPrint('MeshManager: advertising failed or unavailable');
+    }
 
-    _updateState(
-      _state.copyWith(
-        isAdvertising: didAdvertise,
-        lastActivityAt: DateTime.now(),
-        queuedAlertCount: _broadcastQueue.length,
-        statusMessage: didAdvertise
-            ? statusMessage
-            : 'Alert stored locally, but broadcasting is unavailable',
-      ),
-    );
+    _updateState(_state.copyWith(
+      isAdvertising: didAdvertise,
+      lastActivityAt: DateTime.now(),
+      queuedAlertCount: _broadcastQueue.length,
+      statusMessage: didAdvertise
+          ? statusMessage
+          : 'Alert stored locally, but broadcasting is unavailable',
+    ));
     return didAdvertise;
   }
 
@@ -540,7 +570,7 @@ class MeshManager {
       }
 
       return AlertMessage(
-        messageId: 'hash_msg_${msgIdHash}_ts_${ts}_snd_${sIdHash}',
+        messageId: 'hash_msg_${msgIdHash}_ts_${ts}_snd_$sIdHash',
         type: AlertType.values[typeIndex % AlertType.values.length],
         latitude: lat,
         longitude: lng,

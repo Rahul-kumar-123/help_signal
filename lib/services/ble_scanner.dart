@@ -85,7 +85,10 @@ class BLEManager {
       }
     }
 
-    final scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
+    // Use scanResults (not onScanResults) so the full accumulated result set
+    // is replayed on every emission — onScanResults only emits incremental
+    // events and misses devices already found in the current scan window.
+    final scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       var listUpdated = false;
 
       for (final device in results) {
@@ -107,9 +110,17 @@ class BLEManager {
           discoveredDevices.add(device);
           listUpdated = true;
         } else {
+          // Only mark updated if the payload has actually changed
+          final oldPayload = discoveredDevices[existingIndex]
+              .advertisementData.manufacturerData[kBleManufacturerId];
+          final newPayload = device.advertisementData.manufacturerData[kBleManufacturerId];
+          if (oldPayload?.toString() != newPayload?.toString()) {
+            listUpdated = true;
+          }
           discoveredDevices[existingIndex] = device;
-          listUpdated = true;
         }
+        // Record the time we last saw this device so stale entries can be purged later
+        _deviceLastSeen[device.device.remoteId.str] = DateTime.now();
       }
 
       if (listUpdated) {
@@ -126,12 +137,15 @@ class BLEManager {
         androidUsesFineLocation: _requiresLocationForAndroidBleScan,
         androidCheckLocationServices: _requiresLocationForAndroidBleScan,
       );
+      // Wait for the scan to finish BEFORE cancelling the subscription,
+      // so the final batch of results is not dropped.
       await FlutterBluePlus.isScanning.where((val) => val == false).first;
     } catch (error) {
       debugPrint('Failed to start scan: $error');
       rethrow;
     } finally {
-      await scanSubscription.cancel();
+      // Safe cancel — ignore errors from double-cancel scenarios
+      try { await scanSubscription.cancel(); } catch (_) {}
     }
 
     debugPrint('Scan finished. Found ${discoveredDevices.length} devices.');
@@ -174,8 +188,9 @@ class BLEManager {
 
     // Set up the persistent scan results listener
     await _continuousScanSubscription?.cancel();
+    // Use scanResults so the full accumulated list is replayed each emission
     _continuousScanSubscription =
-        FlutterBluePlus.onScanResults.listen((results) {
+        FlutterBluePlus.scanResults.listen((results) {
       var listUpdated = false;
 
       for (final device in results) {
@@ -196,11 +211,16 @@ class BLEManager {
           discoveredDevices.add(device);
           listUpdated = true;
         } else {
-          // Always update to get fresh advertisement data (may contain new alert payload)
+          // Only mark updated if the payload has actually changed (may contain new alert)
+          final oldPayload = discoveredDevices[existingIndex]
+              .advertisementData.manufacturerData[kBleManufacturerId];
+          final newPayload = device.advertisementData.manufacturerData[kBleManufacturerId];
+          if (oldPayload?.toString() != newPayload?.toString()) {
+            listUpdated = true;
+          }
           discoveredDevices[existingIndex] = device;
-          listUpdated = true;
         }
-        
+
         _deviceLastSeen[device.device.remoteId.str] = DateTime.now();
       }
 
@@ -235,10 +255,13 @@ class BLEManager {
         final initialCount = discoveredDevices.length;
         
         discoveredDevices.removeWhere((d) {
-          final lastSeen = _deviceLastSeen[d.device.remoteId.str];
-          return lastSeen == null || now.difference(lastSeen) > staleThreshold;
+          final key = d.device.remoteId.str;
+          final lastSeen = _deviceLastSeen[key];
+          final isStale = lastSeen == null || now.difference(lastSeen) > staleThreshold;
+          if (isStale) _deviceLastSeen.remove(key); // also clean up the map
+          return isStale;
         });
-        
+
         if (discoveredDevices.length != initialCount) {
           debugPrint('Purged ${initialCount - discoveredDevices.length} stale device(s).');
         }
